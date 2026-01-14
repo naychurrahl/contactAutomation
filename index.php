@@ -34,40 +34,6 @@ function base64url_decode($data)
   return base64_decode(strtr($data, '-_', '+/'));
 }
 
-function encryptSecret(string $plaintext, string $passphrase = KEY['keys']): string
-{
-
-  $salt = random_bytes(SALT_LENGTH);
-  $iv   = random_bytes(IV_LENGTH);
-
-  $key = hash_pbkdf2(
-    'sha256',
-    $passphrase,
-    $salt,
-    PBKDF2_ITERATIONS,
-    KEY_LENGTH,
-    true
-  );
-
-  $tag = '';
-  $ciphertext = openssl_encrypt(
-    $plaintext,
-    'aes-256-gcm',
-    $key,
-    OPENSSL_RAW_DATA,
-    $iv,
-    $tag,
-    '',
-    TAG_LENGTH
-  );
-
-  if ($ciphertext === false) {
-    throw new RuntimeException('Encryption failed');
-  }
-
-  return base64_encode($salt . $iv . $tag . $ciphertext);
-}
-
 function decryptSecret(string $encryptedBase64, string $passphrase = KEY['keys']): string
 {
 
@@ -113,6 +79,89 @@ function decryptSecret(string $encryptedBase64, string $passphrase = KEY['keys']
   }
 
   return $plaintext;
+}
+
+function encryptSecret(string $plaintext, string $passphrase = KEY['keys']): string
+{
+
+  $salt = random_bytes(SALT_LENGTH);
+  $iv   = random_bytes(IV_LENGTH);
+
+  $key = hash_pbkdf2(
+    'sha256',
+    $passphrase,
+    $salt,
+    PBKDF2_ITERATIONS,
+    KEY_LENGTH,
+    true
+  );
+
+  $tag = '';
+  $ciphertext = openssl_encrypt(
+    $plaintext,
+    'aes-256-gcm',
+    $key,
+    OPENSSL_RAW_DATA,
+    $iv,
+    $tag,
+    '',
+    TAG_LENGTH
+  );
+
+  if ($ciphertext === false) {
+    throw new RuntimeException('Encryption failed');
+  }
+
+  return base64_encode($salt . $iv . $tag . $ciphertext);
+}
+
+function extractEmail(string $idToken): null | array
+{
+  list($headerB64, $payloadB64, $sigB64) = explode('.', $idToken);
+  $header = json_decode(base64url_decode($headerB64), true);
+  $payload = json_decode(base64url_decode($payloadB64), true);
+  $signature = base64url_decode($sigB64);
+
+  $kid = $header['kid'] ?? null;
+  $alg = $header['alg'] ?? null;
+
+  if ($alg !== 'RS256') return(null);
+
+  if (!$kid) return(null);
+
+  $certsJson = sendCurlRequest(
+    "https://www.googleapis.com/oauth2/v3/certs"
+  );
+
+  $certsData = json_decode($certsJson['response'], true);
+
+  $keys = $certsData['keys'] ?? [];
+
+  $publicKey = getGooglePublicKey($keys, $kid);
+
+  if (!$publicKey) return(null);
+
+  $verified = openssl_verify(
+    "$headerB64.$payloadB64",
+    $signature,
+    $publicKey,
+    OPENSSL_ALGO_SHA256
+  );
+
+  if ($verified !== 1) return(null);
+
+  if ($payload['iss'] !== 'https://accounts.google.com') return(null);
+
+  if ($payload['aud'] !== SECRETS['client_id']) return(null);
+
+  if ($payload['exp'] < time()) return(null);
+
+  if (empty($payload['email']) || !$payload['email_verified']) return(null);
+
+  return [
+    "user_id" => $payload['sub'],
+    "user_email" => $payload['email'],
+  ];
 }
 
 function getGooglePublicKey(array $jwks, string $kid)
@@ -191,140 +240,7 @@ function jwkToPem(string $n, string $e): string
     "-----END PUBLIC KEY-----\n";
 }
 
-function sendCurlRequest(string $url, string $method = "GET", array $headers = [], array | string  | null $body = null): string | array
-{
-  $ch = curl_init();
-
-  // Set URL
-  curl_setopt($ch, CURLOPT_URL, $url);
-  curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-  // Set method
-  curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
-
-  // Set headers if provided
-  if (!empty($headers)) {
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-  }
-
-  // Set body if provided
-  if ($body !== null) {
-
-    if (is_array($body)) {
-      $body = http_build_query($body);
-    }
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
-  }
-
-  // Execute request
-  $response = curl_exec($ch);
-  $error = curl_error($ch);
-  $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
-  if ($error) {
-    return ["error" => $error];
-  }
-
-  return [
-    "status" => $status,
-    "response" => $response
-  ];
-}
-
-function newUser($token): string | null
-{
-  $payload = [
-    "client_id" => SECRETS['client_id'],
-    "client_secret" => SECRETS['client_secret'],
-    "code" => $token,
-    "grant_type" => "authorization_code",
-    "redirect_uri" => REDIRECT_URI
-  ];
-
-  $newToken = sendCurlRequest(
-    "https://oauth2.googleapis.com/token",
-    "POST",
-    ["Content-Type" => "application/x-www-form-urlencoded"],
-    $payload,
-  );
-
-  if (isset($newToken['error'])) {
-
-    return $newToken['error'];
-  }
-
-  if (! $newToken['response']) die("Error requesting token.");
-
-  $tokenResponse = json_decode($newToken['response'], true);
-
-  $accessToken = $tokenResponse['access_token'] ?? null;
-  $refreshToken = $tokenResponse['refresh_token'] ?? null;
-  $idToken = $tokenResponse['id_token'] ?? null;
-  $expiresIn = $tokenResponse['expires_in'] ?? null;
-
-  if (!$accessToken || !$idToken) die("Invalid token response.");
-
-  list($headerB64, $payloadB64, $sigB64) = explode('.', $idToken);
-  $header = json_decode(base64url_decode($headerB64), true);
-  $payload = json_decode(base64url_decode($payloadB64), true);
-  $signature = base64url_decode($sigB64);
-
-  $kid = $header['kid'] ?? null;
-  $alg = $header['alg'] ?? null;
-
-  if ($alg !== 'RS256') die("Unsupported algorithm");
-
-  if (!$kid) die("No key ID in header");
-  
-  $certsJson = sendCurlRequest(
-    "https://www.googleapis.com/oauth2/v3/certs"
-  );
-
-  $certsData = json_decode($certsJson['response'], true);
-
-  $keys = $certsData['keys'] ?? [];
-
-  $publicKey = getGooglePublicKey($keys, $kid);
-
-  if (!$publicKey) die("Matching public key not found");
-
-  $verified = openssl_verify(
-    "$headerB64.$payloadB64",
-    $signature,
-    $publicKey,
-    OPENSSL_ALGO_SHA256
-  );
-
-  if ($verified !== 1) die("Invalid ID token signature");
-
-  if ($payload['iss'] !== 'https://accounts.google.com') die("Invalid issuer");
-
-  if ($payload['aud'] !== SECRETS['client_id']) die("Invalid audience");
-
-  if ($payload['exp'] < time()) die("ID token expired");
-
-  if (empty($payload['email']) || !$payload['email_verified']) die("Email not verified");
-
-
-  $expiresAt = time() + $expiresIn;
-
-  // Save new token data
-  $tokenData = [
-
-    "access_token" => $accessToken,
-    "refresh_token" => $refreshToken,
-    "user_id" => $payload['sub'],
-    "user_email" => $payload['email'],
-    "expires_at" => $expiresAt
-
-  ];
-
-  saveToken($tokenData); //We are going to not be doing this
-
-  return True;
-}
-
-function loadToken(): string | null
+function loadToken(): array | null
 {
 
   if (file_exists(TOKEN_PATH)) {
@@ -332,61 +248,13 @@ function loadToken(): string | null
 
     if (isset($tokenData['expires_at']) && $tokenData['expires_at'] < time()) {
       // Token has expired
-      return refreshToken();
+      return refreshToken($tokenData['refresh_token']);
     }
 
-    return $tokenData['access_token'];
+    return $tokenData;
   }
 
-  return refreshToken();
-}
-
-function refreshToken(): string | null
-{
-  print_r(SECRETS);
   return null;
-  $newToken = sendCurlRequest(
-    "https://oauth2.googleapis.com/token",
-    "POST",
-    ["Content-Type" => "application/x-www-form-urlencoded"],
-    SECRETS,
-  );
-
-  if (isset($newToken['error'])) {
-
-    return $newToken['error'];
-  }
-
-  $tokenResponse = json_decode($newToken['response'], true);
-
-  $accessToken = $tokenResponse['access_token'];
-
-  if ($accessToken) {
-    saveToken($tokenResponse);
-    return $accessToken;
-  }
-
-  return "error";
-}
-
-function saveToken(array $tokenResponse): void
-{
-
-  file_put_contents(TOKEN_PATH, encryptSecret(json_encode($tokenResponse), KEY['token']));
-}
-
-function validatePhoneNumber(string $phone): bool | string
-{
-  // Remove common separators
-  $clean = preg_replace('/[\s\-\(\)\.]/', '', $phone);
-
-  // Must start with optional + followed by digits only
-  if (!preg_match('/^\+?[0-9]{7,15}$/', $clean)) {
-
-    return false;
-  }
-
-  return $clean;
 }
 
 function main(string $phone, string | null $name = null, string | null $email = null): void
@@ -439,8 +307,214 @@ function main(string $phone, string | null $name = null, string | null $email = 
   return;
 }
 
-//refreshToken();
-//exit();
+function newUser($token): string | null
+{
+  $payload = [
+    "client_id" => SECRETS['client_id'],
+    "client_secret" => SECRETS['client_secret'],
+    "code" => $token,
+    "grant_type" => "authorization_code",
+    "redirect_uri" => REDIRECT_URI
+  ];
+
+  $newToken = sendCurlRequest(
+    "https://oauth2.googleapis.com/token",
+    "POST",
+    ["Content-Type" => "application/x-www-form-urlencoded"],
+    $payload,
+  );
+
+  if (isset($newToken['error'])) {
+
+    return $newToken['error'];
+  }
+
+  if (! $newToken['response']) die("Error requesting token.");
+
+  $tokenResponse = json_decode($newToken['response'], true);
+
+  $accessToken = $tokenResponse['access_token'] ?? null;
+  $refreshToken = $tokenResponse['refresh_token'] ?? null;
+  $idToken = $tokenResponse['id_token'] ?? null;
+  $expiresIn = $tokenResponse['expires_in'] ?? null;
+
+  if (!$accessToken || !$idToken) die("Invalid token response.");
+
+  /* list($headerB64, $payloadB64, $sigB64) = explode('.', $idToken);
+    $header = json_decode(base64url_decode($headerB64), true);
+    $payload = json_decode(base64url_decode($payloadB64), true);
+    $signature = base64url_decode($sigB64);
+
+    $kid = $header['kid'] ?? null;
+    $alg = $header['alg'] ?? null;
+
+    if ($alg !== 'RS256') die("Unsupported algorithm");
+
+    if (!$kid) die("No key ID in header");
+
+    $certsJson = sendCurlRequest(
+      "https://www.googleapis.com/oauth2/v3/certs"
+    );
+
+    $certsData = json_decode($certsJson['response'], true);
+
+    $keys = $certsData['keys'] ?? [];
+
+    $publicKey = getGooglePublicKey($keys, $kid);
+
+    if (!$publicKey) die("Matching public key not found");
+
+    $verified = openssl_verify(
+      "$headerB64.$payloadB64",
+      $signature,
+      $publicKey,
+      OPENSSL_ALGO_SHA256
+    );
+
+    if ($verified !== 1) die("Invalid ID token signature");
+
+    if ($payload['iss'] !== 'https://accounts.google.com') die("Invalid issuer");
+
+    if ($payload['aud'] !== SECRETS['client_id']) die("Invalid audience");
+
+    if ($payload['exp'] < time()) die("ID token expired");
+
+    if (empty($payload['email']) || !$payload['email_verified']) die("Email not verified");
+  */
+
+  $payload = extractEmail($idToken);
+
+  if (! $payload) return null;
+
+  $expiresAt = time() + $expiresIn;
+
+  // Save new token data
+  $tokenData = [
+
+    "access_token" => $accessToken,
+    "refresh_token" => $refreshToken,
+    "user_id" => $payload['sub'],
+    "user_email" => $payload['email'],
+    "expires_at" => $expiresAt
+
+  ];
+
+  saveToken($tokenData); //We are going to not be doing this
+
+  return True;
+}
+
+function refreshToken(string $refreshToken): array | null
+{
+  $newToken = sendCurlRequest(
+    "https://oauth2.googleapis.com/token",
+    "POST",
+    ["Content-Type" => "application/x-www-form-urlencoded"],
+    [
+      "client_id" => SECRETS['client_id'],
+      "client_secret" => SECRETS['client_secret'],
+      "refresh_token" => $refreshToken,
+      "grant_type" => "refresh_token"
+    ]
+  );
+
+  if (isset($newToken['error'])) {
+
+    return $newToken;
+  }
+
+  $tokenResponse = json_decode($newToken['response'], true);
+
+  $accessToken = $tokenResponse['access_token'] ?? null;
+  $refreshToken = $tokenResponse['refresh_token'] ?? null;
+  $idToken = $tokenResponse['id_token'] ?? null;
+  $expiresIn = $tokenResponse['expires_in'] ?? null;
+
+  if (!$accessToken || !$idToken) die("Invalid token response.");
+
+  $payload = extractEmail($idToken);
+
+  if (! $payload) return null;
+
+  $expiresAt = time() + $expiresIn;
+
+  $tokenData = [
+
+    "access_token" => $accessToken,
+    "refresh_token" => $refreshToken,
+    "user_id" => $payload['sub'],
+    "user_email" => $payload['email'],
+    "expires_at" => $expiresAt
+
+  ];
+
+  saveToken($tokenData);
+
+  return $tokenData;
+}
+
+function saveToken(array $tokenResponse): void
+{
+
+  file_put_contents(TOKEN_PATH, encryptSecret(json_encode($tokenResponse), KEY['token']));
+}
+
+function sendCurlRequest(string $url, string $method = "GET", array $headers = [], array | string  | null $body = null): string | array
+{
+  $ch = curl_init();
+
+  // Set URL
+  curl_setopt($ch, CURLOPT_URL, $url);
+  curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+  // Set method
+  curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
+
+  // Set headers if provided
+  if (!empty($headers)) {
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+  }
+
+  // Set body if provided
+  if ($body !== null) {
+
+    if (is_array($body)) {
+      $body = http_build_query($body);
+    }
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+  }
+
+  // Execute request
+  $response = curl_exec($ch);
+  $error = curl_error($ch);
+  $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+  if ($error) {
+    return ["error" => $error];
+  }
+
+  return [
+    "status" => $status,
+    "response" => $response
+  ];
+}
+
+function validatePhoneNumber(string $phone): bool | string
+{
+  // Remove common separators
+  $clean = preg_replace('/[\s\-\(\)\.]/', '', $phone);
+
+  // Must start with optional + followed by digits only
+  if (!preg_match('/^\+?[0-9]{7,15}$/', $clean)) {
+
+    return false;
+  }
+
+  return $clean;
+}
+
+print_r(loadToken());
+exit();
 
 switch ($_SERVER['REQUEST_METHOD']) {
   case 'POST':
