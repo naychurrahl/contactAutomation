@@ -1,15 +1,17 @@
 <?php
 
-error_reporting(null);
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+ini_set('log_errors', 1);
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: POST, OPTIONS');
+header('Access-Control-Allow-Methods: POST, OPTIONS, GET');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
-define('CONFIG_PATH', __DIR__ . '/../config/');
-define('SECRET', CONFIG_PATH . 'honeypot');
+define('CONFIG_PATH', __DIR__ . '/.ignore/');
 define('TOKEN_PATH', CONFIG_PATH . 'token');
+define('REDIRECT_URI', "http://localhost:5600");
 
 if (!file_exists(CONFIG_PATH . 'keys.json')) {
   die(json_encode("Missing keys.json in config directory."));
@@ -22,6 +24,15 @@ define('IV_LENGTH', 12);
 define('TAG_LENGTH', 16);
 define('PBKDF2_ITERATIONS', 100000);
 define('KEY_LENGTH', 32);
+
+define('SECRETS', json_decode(decryptSecret(file_get_contents(CONFIG_PATH . 'honeypot')), true));
+
+function base64url_decode($data)
+{
+  $remainder = strlen($data) % 4;
+  if ($remainder) $data .= str_repeat('=', 4 - $remainder);
+  return base64_decode(strtr($data, '-_', '+/'));
+}
 
 function encryptSecret(string $plaintext, string $passphrase = KEY['keys']): string
 {
@@ -104,6 +115,82 @@ function decryptSecret(string $encryptedBase64, string $passphrase = KEY['keys']
   return $plaintext;
 }
 
+function getGooglePublicKey(array $jwks, string $kid)
+{
+  foreach ($jwks as $key) {
+    if ($key['kid'] !== $kid) {
+      continue;
+    }
+
+    // Case 1: x5c certificate
+    if (isset($key['x5c'][0])) {
+      $certPem =
+        "-----BEGIN CERTIFICATE-----\n" .
+        chunk_split($key['x5c'][0], 64, "\n") .
+        "-----END CERTIFICATE-----\n";
+
+      return openssl_pkey_get_public($certPem);
+    }
+
+    // Case 2: raw RSA key (n, e)
+    if (isset($key['n'], $key['e'])) {
+      $pem = jwkToPem($key['n'], $key['e']);
+      return openssl_pkey_get_public($pem);
+    }
+  }
+
+  return null;
+}
+
+function jwkToPem(string $n, string $e): string
+{
+  $modulus  = base64url_decode($n);
+  $exponent = base64url_decode($e);
+
+  // ASN.1 encoding helpers
+  $encodeLength = function ($length) {
+    if ($length <= 0x7F) {
+      return chr($length);
+    }
+    $temp = ltrim(pack('N', $length), "\x00");
+    return chr(0x80 | strlen($temp)) . $temp;
+  };
+
+  $encodeInteger = function ($value) use ($encodeLength) {
+    if (ord($value[0]) > 0x7F) {
+      $value = "\x00" . $value;
+    }
+    return "\x02" . $encodeLength(strlen($value)) . $value;
+  };
+
+  $encodeSequence = function ($value) use ($encodeLength) {
+    return "\x30" . $encodeLength(strlen($value)) . $value;
+  };
+
+  // RSAPublicKey ::= SEQUENCE { modulus, exponent }
+  $rsaPublicKey =
+    $encodeSequence(
+      $encodeInteger($modulus) .
+        $encodeInteger($exponent)
+    );
+
+  // AlgorithmIdentifier for rsaEncryption
+  $rsaOid = "\x30\x0D\x06\x09\x2A\x86\x48\x86\xF7\x0D\x01\x01\x01\x05\x00";
+
+  // SubjectPublicKeyInfo
+  $subjectPublicKeyInfo =
+    $encodeSequence(
+      $rsaOid .
+        "\x03" . $encodeLength(strlen($rsaPublicKey) + 1) .
+        "\x00" . $rsaPublicKey
+    );
+
+  return
+    "-----BEGIN PUBLIC KEY-----\n" .
+    chunk_split(base64_encode($subjectPublicKeyInfo), 64, "\n") .
+    "-----END PUBLIC KEY-----\n";
+}
+
 function sendCurlRequest(string $url, string $method = "GET", array $headers = [], array | string  | null $body = null): string | array
 {
   $ch = curl_init();
@@ -144,6 +231,99 @@ function sendCurlRequest(string $url, string $method = "GET", array $headers = [
   ];
 }
 
+function newUser($token): string | null
+{
+  $payload = [
+    "client_id" => SECRETS['client_id'],
+    "client_secret" => SECRETS['client_secret'],
+    "code" => $token,
+    "grant_type" => "authorization_code",
+    "redirect_uri" => REDIRECT_URI
+  ];
+
+  $newToken = sendCurlRequest(
+    "https://oauth2.googleapis.com/token",
+    "POST",
+    ["Content-Type" => "application/x-www-form-urlencoded"],
+    $payload,
+  );
+
+  if (isset($newToken['error'])) {
+
+    return $newToken['error'];
+  }
+
+  if (! $newToken['response']) die("Error requesting token.");
+
+  $tokenResponse = json_decode($newToken['response'], true);
+
+  $accessToken = $tokenResponse['access_token'] ?? null;
+  $refreshToken = $tokenResponse['refresh_token'] ?? null;
+  $idToken = $tokenResponse['id_token'] ?? null;
+  $expiresIn = $tokenResponse['expires_in'] ?? null;
+
+  if (!$accessToken || !$idToken) die("Invalid token response.");
+
+  list($headerB64, $payloadB64, $sigB64) = explode('.', $idToken);
+  $header = json_decode(base64url_decode($headerB64), true);
+  $payload = json_decode(base64url_decode($payloadB64), true);
+  $signature = base64url_decode($sigB64);
+
+  $kid = $header['kid'] ?? null;
+  $alg = $header['alg'] ?? null;
+
+  if ($alg !== 'RS256') die("Unsupported algorithm");
+
+  if (!$kid) die("No key ID in header");
+  
+  $certsJson = sendCurlRequest(
+    "https://www.googleapis.com/oauth2/v3/certs"
+  );
+
+  $certsData = json_decode($certsJson['response'], true);
+
+  $keys = $certsData['keys'] ?? [];
+
+  $publicKey = getGooglePublicKey($keys, $kid);
+
+  if (!$publicKey) die("Matching public key not found");
+
+  $verified = openssl_verify(
+    "$headerB64.$payloadB64",
+    $signature,
+    $publicKey,
+    OPENSSL_ALGO_SHA256
+  );
+
+  if ($verified !== 1) die("Invalid ID token signature");
+
+  if ($payload['iss'] !== 'https://accounts.google.com') die("Invalid issuer");
+
+  if ($payload['aud'] !== SECRETS['client_id']) die("Invalid audience");
+
+  if ($payload['exp'] < time()) die("ID token expired");
+
+  if (empty($payload['email']) || !$payload['email_verified']) die("Email not verified");
+
+
+  $expiresAt = time() + $expiresIn;
+
+  // Save new token data
+  $tokenData = [
+
+    "access_token" => $accessToken,
+    "refresh_token" => $refreshToken,
+    "user_id" => $payload['sub'],
+    "user_email" => $payload['email'],
+    "expires_at" => $expiresAt
+
+  ];
+
+  saveToken($tokenData); //We are going to not be doing this
+
+  return True;
+}
+
 function loadToken(): string | null
 {
 
@@ -163,8 +343,8 @@ function loadToken(): string | null
 
 function refreshToken(): string | null
 {
-  define('SECRETS', json_decode(decryptSecret(file_get_contents(SECRET)), true));
-
+  print_r(SECRETS);
+  return null;
   $newToken = sendCurlRequest(
     "https://oauth2.googleapis.com/token",
     "POST",
@@ -180,20 +360,19 @@ function refreshToken(): string | null
   $tokenResponse = json_decode($newToken['response'], true);
 
   $accessToken = $tokenResponse['access_token'];
-  $expiresIn = $tokenResponse['expires_in'];
-  $expiresAt = time() + $expiresIn;
 
-  // Save new token data
-  $tokenData = [
+  if ($accessToken) {
+    saveToken($tokenResponse);
+    return $accessToken;
+  }
 
-    "access_token" => $accessToken,
-    "expires_at" => $expiresAt
+  return "error";
+}
 
-  ];
+function saveToken(array $tokenResponse): void
+{
 
-  file_put_contents(TOKEN_PATH, encryptSecret(json_encode($tokenData), KEY['token']));
-
-  return $accessToken;
+  file_put_contents(TOKEN_PATH, encryptSecret(json_encode($tokenResponse), KEY['token']));
 }
 
 function validatePhoneNumber(string $phone): bool | string
@@ -213,7 +392,7 @@ function validatePhoneNumber(string $phone): bool | string
 function main(string $phone, string | null $name = null, string | null $email = null): void
 {
   //Clean name
-  $name = trim($name . " Customer");
+  $name = trim($name . " C-" . time());
 
   // Load token
   $token = loadToken();
@@ -260,6 +439,9 @@ function main(string $phone, string | null $name = null, string | null $email = 
   return;
 }
 
+//refreshToken();
+//exit();
+
 switch ($_SERVER['REQUEST_METHOD']) {
   case 'POST':
 
@@ -290,6 +472,17 @@ switch ($_SERVER['REQUEST_METHOD']) {
 
     // Handle preflight request
     http_response_code(204);
+    break;
+
+  case 'GET':
+
+    // Handle GET request (for testing)
+    //echo json_encode("API is running.");
+
+    if (! empty($_GET['code'])) {
+      newUser($_GET['code']);
+    }
+
     break;
 
   default:

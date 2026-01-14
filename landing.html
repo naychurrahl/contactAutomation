@@ -137,6 +137,11 @@
         transition: transform 0.15s ease, box-shadow 0.15s ease;
       }
 
+      button:disabled {
+        opacity: 0.5;
+        pointer-events: none;
+      }
+
       button:hover {
         transform: translateY(-2px);
         box-shadow: 0 12px 30px rgba(255, 61, 0, 0.5);
@@ -172,7 +177,7 @@
         <form>
           <div class="form-group">
             <label>NAME</label>
-            <input type="text" placeholder="John Smith" required />
+            <input type="text" placeholder="John Smith" />
             <small class="error-message"></small>
           </div>
 
@@ -353,7 +358,8 @@
 
     <script>
       // Base API URL
-      const API_BASE = "http://127.0.0.1:5600";
+      //const API_BASE = "http://localhost:5600";
+      const API_BASE = "https://testautomation.alwaysdata.net";
 
       // Validity variables
       var validEmail = null;
@@ -432,8 +438,6 @@
       // API request
       async function apiRequest(endpoint, method = "GET", data = null) {
         const headers = { "Content-Type": "application/json" };
-        //const token = getToken();
-        //if (token) headers["Authorization"] = token;
 
         try {
           const response = await fetch(`${API_BASE}/${endpoint}`, {
@@ -442,11 +446,9 @@
             body: data ? JSON.stringify(data) : null,
           });
 
-          //console.log(response);
-
           return await response.json();
         } catch (error) {
-          console.log(error);
+          console.log("Failed");
         }
       }
 
@@ -468,6 +470,8 @@
       // --- Submit if all valid ---
       document.querySelector("form").addEventListener("submit", function (e) {
         e.preventDefault();
+        const submitBtn = this.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
 
         validateName();
         validateEmail();
@@ -475,23 +479,35 @@
         validatePhoneBody();
 
         if (document.querySelectorAll("input.error").length > 0) {
-          console.log(document.querySelectorAll("input.error").length);
+          console.log("Failed");
         } else {
-          console.log("Form is valid.");
-          console.log("Name:", validName);
-          console.log("Email:", validEmail);
-          console.log("Phone:", validNumber);
-
           (async () => {
             const payload = {
               phone: validNumber,
               name: validName,
               email: validEmail,
             };
-            
-            const data = await apiRequest("/", "POST", payload);
 
-            console.log(data);
+            console.log(payload);
+
+            //const data = await apiRequest("/", "POST", payload);
+            const data = await new Promise((resolve) => {
+              setTimeout(() => {
+                resolve(Math.random() > 0.5 ? "Success" : "Failed");
+              }, 9000);
+            });
+
+            //console.log(data);
+
+            if (data && data.toLowerCase() == "success") {
+              this.reset();
+              alert("Submission successful! We will contact you soon.");
+              //window.location.replace(`https://wa.me/2348112415936?text=Hi%20my%20name%20is%20${validName}`);
+            } else {
+              alert("Submission failed. Please try again later.");
+            }
+
+            submitBtn.disabled = false;
           })();
         }
       });
