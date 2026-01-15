@@ -2,10 +2,10 @@
 
 define('CONFIG_PATH', __DIR__ . '/.ignore/');
 define('TOKEN_PATH', CONFIG_PATH . 'token');
-define('REDIRECT_URI', "http://localhost:5600");
+define('REDIRECT_URI', "http://localhost:5600/callback");
 
 if (!file_exists(CONFIG_PATH . 'keys.json')) {
-  die(json_encode("Missing keys.json in config directory."));
+  die(json_encode("Missing keys"));
 }
 
 define('KEY', json_decode(file_get_contents(CONFIG_PATH . 'keys.json'), true));
