@@ -40,10 +40,40 @@ class Controller
 
   private function handle()
   {
-    switch ($this->route) {
+    switch (strtolower($this->route)) {
       case '':
       case '/':
         if ($this->method !== 'POST') $this->methodNotAllowed(['POST']);
+        break;
+
+      case 'main':
+        if ($this->method !== 'POST') $this->methodNotAllowed(['POST']);
+
+        if (! empty($this -> requestBody['phone'])) {
+
+          if ($phoneNumber = $this -> functions -> validatePhoneNumber($this->requestBody['phone'])) {
+
+            $name = $this->requestBody['name'] ?? null;
+            $email = $this->requestBody['email'] ?? null;
+
+            $this -> functions -> main($phoneNumber, $name, $email);
+
+          } else {
+
+            header("HTTP/1.1 400 Invalid Phone Number");
+
+            http_response_code(400);
+
+            die (json_encode("invalid phone number"));
+          }
+        } else {
+
+          header("HTTP/1.1 400 Requires Phone Number");
+
+          http_response_code(400);
+
+          die (json_encode("Phone number is required."));
+        }
         break;
 
       case "callback":
@@ -62,8 +92,8 @@ class Controller
 
       /*
       Endpoints:
-      Onboarding \POST
-      Main \POST
+      Onboarding \POST  
+      Main \POST  ✔️
       Callback \GET  ✔️
       Ping \*  ✔️
        */
