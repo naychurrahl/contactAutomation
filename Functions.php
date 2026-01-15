@@ -463,14 +463,15 @@ class Functions
 
       "access_token" => $accessToken,
       "refresh_token" => $refreshToken,
-      "user_id" => $payload['sub'],
-      "user_email" => $payload['email'],
+      "user_id" => $payload['user_id'],
+      "user_email" => $payload['user_email'],
       "expires_at" => $expiresAt
 
     ];
 
     $this->saveToken($tokenData); //We are going to not be doing this
 
+    header("location: http://localhost:5500/sandbox/landing.html");
     die(json_encode(True));
   }
 
