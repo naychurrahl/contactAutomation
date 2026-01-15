@@ -43,15 +43,7 @@ class Controller
     switch ($this->route) {
       case '':
       case '/':
-        switch ($this->method) {
-          case 'POST':
-            return "null";
-          case 'GET':
-            //return $this->functions->patchLogin($this->parom);
-            return "GET";
-          default:
-            return $this->methodNotAllowed();
-        }
+        if ($this->method !== 'POST') $this->methodNotAllowed(['POST']);
         break;
 
       case "callback":
@@ -70,10 +62,10 @@ class Controller
 
       /*
       Endpoints:
-      Onboarding /POST
-      Main /POST
-      Callback /GET  ✔️
-      Ping /*  ✔️
+      Onboarding \POST
+      Main \POST
+      Callback \GET  ✔️
+      Ping \*  ✔️
        */
     }
   }
@@ -84,25 +76,20 @@ class Controller
     header('Allow: ' . implode(', ', $allowed));
     die (json_encode([
       'error' => 'Method Not Allowed',
-      'allowed' => $allowed
+      'allowed' => implode(', ', $allowed)
     ]));
   }
 
-  private function endpointNotFound(array $allowed = ["/"])
+  private function endpointNotFound(array $allowed = ['"/"', '"/callback"', '"/ping"'])
   {
 
-    $res = [
-      "header" => 'HTTP/1.1 404 Endpoint Not Found',
-      "rescode" => 404,
-      "message" => [
-        'Message' => 'endpoint not found',
-        'Allowed' => implode(', ', $allowed),
-      ],
-    ];
+    header("HTTP/1.1 404 EndPoint Not Found");
 
-    header($res['header']);
-    http_response_code($res['rescode']);
+    http_response_code(404);
 
-    die (json_encode($res['message']));
+    die (json_encode([
+      'Message' => 'Endpoint Not Found',
+      'Allowed' => implode(', ', $allowed),
+    ]));
   }
 }
