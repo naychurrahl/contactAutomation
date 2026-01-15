@@ -43,8 +43,9 @@ class Controller
     switch (strtolower($this->route)) {
       case '':
       case '/':
-        if ($this->method !== 'POST') $this->methodNotAllowed(['POST']);
-        break;
+        if ($this->method !== 'GET') $this->methodNotAllowed(['GET']);
+
+        $this -> functions -> buildLink();
 
       case 'main':
         if ($this->method !== 'POST') $this->methodNotAllowed(['POST']);
