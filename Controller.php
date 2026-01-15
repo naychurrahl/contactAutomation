@@ -80,7 +80,7 @@ class Controller
     ]));
   }
 
-  private function endpointNotFound(array $allowed = ['"/"', '"/callback"', '"/ping"'])
+  private function endpointNotFound(array $allowed = ['/', '/callback', '/ping'])
   {
 
     header("HTTP/1.1 404 EndPoint Not Found");
@@ -88,8 +88,8 @@ class Controller
     http_response_code(404);
 
     die (json_encode([
-      'Message' => 'Endpoint Not Found',
-      'Allowed' => implode(', ', $allowed),
+      'Message' => 'EndPoint Not Found',
+      'Allowed' => $allowed,
     ]));
   }
 }
