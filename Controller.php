@@ -72,8 +72,8 @@ class Controller
       Endpoints:
       Onboarding /POST
       Main /POST
-      Callback /GET
-      Ping /*
+      Callback /GET  ✔️
+      Ping /*  ✔️
        */
     }
   }
