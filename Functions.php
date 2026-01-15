@@ -349,6 +349,26 @@ class Functions
     ];
   }
 
+  public function buildLink(){
+
+    session_start();
+
+    $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
+    $state = uniqid();
+
+    $link  = "https://accounts.google.com/o/oauth2/v2/auth";
+    $link .= "?response_type=code";
+    $link .= "&client_id=".$SECRETS['client_id'];
+    $link .= "&redirect_uri=". REDIRECT_URI;
+    $link .= "&scope=openid email https://www.googleapis.com/auth/contacts";
+    $link .= "&access_type=offline";
+    $link .= "&state=".$state;
+
+    $_SESSION['state'] = $state;
+
+    die (json_encode(["link" => $link]));
+  }
+
   public function main(string $phone, string | null $name = null, string | null $email = null): void
   {
     //Clean name
