@@ -397,9 +397,12 @@
 
     public function newUser($token): string | null
     {
+
+      $SECRETS = json_decode($this -> decryptSecret(SECRETS), true);
+
       $payload = [
-        "client_id" => SECRETS['client_id'],
-        "client_secret" => SECRETS['client_secret'],
+        "client_id" => $SECRETS['client_id'],
+        "client_secret" => $SECRETS['client_secret'],
         "code" => $token,
         "grant_type" => "authorization_code",
         "redirect_uri" => REDIRECT_URI
@@ -414,10 +417,10 @@
 
       if (isset($newToken['error'])) {
 
-        return $newToken['error'];
+        die (json_encode($newToken['error']));
       }
 
-      if (! $newToken['response']) die("Error requesting token.");
+      if (! $newToken['response']) die(json_encode("Error requesting token."));
 
       $tokenResponse = json_decode($newToken['response'], true);
 
@@ -426,11 +429,11 @@
       $idToken = $tokenResponse['id_token'] ?? null;
       $expiresIn = $tokenResponse['expires_in'] ?? null;
 
-      if (!$accessToken || !$idToken) die("Invalid token response.");
+      if (!$accessToken || !$idToken) die(json_encode("Invalid token response."));
 
       $payload = $this -> extractEmail($idToken);
 
-      if (! $payload) return null;
+      if (! $payload) die (0);
 
       $expiresAt = time() + $expiresIn;
 
@@ -447,12 +450,16 @@
 
       $this -> saveToken($tokenData); //We are going to not be doing this
 
-      return True;
+      die (json_encode(True));
     }
 
-    public function ping(): void
+    public function ping($text): void
     {
-      die(json_encode(["time" => time(), "response" => "Pong!"]));
+      die(json_encode([
+        "Time" => time(),
+        "Method" => $text,
+        "Response" => "Pong!"
+      ]));
     }
 
     public function validatePhoneNumber(string $phone): bool | string

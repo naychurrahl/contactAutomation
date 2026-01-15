@@ -54,11 +54,27 @@ class Controller
         }
         break;
 
+      case "callback":
+        if ($this -> method !== 'GET') $this -> methodNotAllowed(['GET']);
+
+        if (! empty($this->requestBody['code'])) {
+          $this -> functions -> newUser($this->requestBody['code']);
+        }
+        break;
+
       case 'ping':
-        $this -> functions -> ping();
+        $this->functions->ping($this -> method);
 
       default:
         return $this->endpointNotFound();
+
+      /*
+      Endpoints:
+      Onboarding /POST
+      Main /POST
+      Callback /GET
+      Ping /*
+       */
     }
   }
 
@@ -66,10 +82,10 @@ class Controller
   {
     http_response_code(405);
     header('Allow: ' . implode(', ', $allowed));
-    echo json_encode([
+    die (json_encode([
       'error' => 'Method Not Allowed',
       'allowed' => $allowed
-    ]);
+    ]));
   }
 
   private function endpointNotFound(array $allowed = ["/"])
@@ -87,6 +103,6 @@ class Controller
     header($res['header']);
     http_response_code($res['rescode']);
 
-    echo json_encode($res['message']);
+    die (json_encode($res['message']));
   }
 }
