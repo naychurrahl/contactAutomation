@@ -382,14 +382,14 @@ class Functions
     }
 
     // Prepare contact payload
-    $contactPayload = json_encode([
+    $contactPayload = [
       "names" => [
         ["displayName" => "Customer", "familyName" => $name]
       ],
       "phoneNumbers" => [
         ["value" => $phone]
       ],
-    ]);
+    ];
 
     if ($email) {
       $contactPayload["emailAddresses"] = [
@@ -404,7 +404,7 @@ class Functions
         "Authorization: Bearer " . $token,
         "Content-Type: application/json"
       ],
-      $contactPayload
+      json_encode($contactPayload)
     );
 
     if (isset($response['error'])) {
