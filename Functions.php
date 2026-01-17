@@ -19,11 +19,31 @@ define('SECRETS', file_get_contents(CONFIG_PATH . 'honeypot'));
 
 class Functions
 {
+
+  //Helper functions
+
   private function base64url_decode($data)
   {
     $remainder = strlen($data) % 4;
     if ($remainder) $data .= str_repeat('=', 4 - $remainder);
     return base64_decode(strtr($data, '-_', '+/'));
+  }
+
+  function charKra(string $input): int
+  {
+    $energy = 0;
+    $length = strlen($input);
+
+    for ($i = 0; $i < $length; $i++) {
+      $energy += ord($input[$i]);
+    }
+
+    return $energy;
+  }
+
+  public function checkUser()
+  {
+    // code...
   }
 
   private function decryptSecret(string $encryptedBase64, string $passphrase = KEY['keys']): string
@@ -110,7 +130,7 @@ class Functions
   private function extractEmail(string $idToken): null | array
   {
     $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
-    
+
     list($headerB64, $payloadB64, $sigB64) = explode('.', $idToken);
     $header = json_decode($this->base64url_decode($headerB64), true);
     $payload = json_decode($this->base64url_decode($payloadB64), true);
@@ -156,6 +176,24 @@ class Functions
       "user_id" => $payload['sub'],
       "user_email" => $payload['email'],
     ];
+  }
+
+  private function flipFlap(string $input): string
+  {
+    $length = strlen($input);
+    $result = '';
+
+    for ($i = 0; $i < $length; $i += 2) {
+      if ($i + 1 < $length) {
+        // swap pair
+        $result .= $input[$i + 1] . $input[$i];
+      } else {
+        // odd leftover
+        $result .= $input[$i];
+      }
+    }
+
+    return $result;
   }
 
   private function getGooglePublicKey(array $jwks, string $kid)
@@ -251,6 +289,25 @@ class Functions
     return null;
   }
 
+  private function passwordMaker(string $input, string $KERNEL_SECRET = 'sha256'): string
+  {
+
+    $x = $this->charKra(
+      hash(
+        "sha256",
+        (string) $this->charKra($this->flipFlap($input))
+      )
+    ) % 10000;
+
+    $y = '0';
+
+    for ($i = 0; $i < $x; $i++) {
+      $y = hash("sha256", hash("sha256", $this->flipFlap($y . $KERNEL_SECRET)));
+    }
+
+    return $y;
+  }
+
   private function refreshToken(string $refreshToken): array | null
   {
 
@@ -303,10 +360,10 @@ class Functions
     return $tokenData;
   }
 
-  private function saveToken(array $tokenResponse): void
+  private function saveToken(array $tokenResponse, string $user = TOKEN_PATH): void
   {
 
-    file_put_contents(TOKEN_PATH, $this->encryptSecret(json_encode($tokenResponse), KEY['token']));
+    file_put_contents($user, $this->encryptSecret(json_encode($tokenResponse), $this->passwordMaker($user)));
   }
 
   private function sendCurlRequest(string $url, string $method = "GET", array $headers = [], array | string  | null $body = null): string | array
@@ -349,7 +406,25 @@ class Functions
     ];
   }
 
-  public function buildLink(){
+  private function validatePhoneNumber(string $phone): bool | string
+  {
+    // Remove common separators
+    $clean = preg_replace('/[\s\-\(\)\.]/', '', $phone);
+
+    // Must start with optional + followed by digits only
+    if (!preg_match('/^\+?[0-9]{7,15}$/', $clean)) {
+
+      return false;
+    }
+
+    return $clean;
+  }
+
+
+  // Public functions
+
+  public function buildLink()
+  {
 
     session_start();
 
@@ -358,65 +433,18 @@ class Functions
 
     $link  = "https://accounts.google.com/o/oauth2/v2/auth";
     $link .= "?response_type=code";
-    $link .= "&client_id=".$SECRETS['client_id'];
-    $link .= "&redirect_uri=". REDIRECT_URI;
+    $link .= "&client_id=" . $SECRETS['client_id'];
+    $link .= "&redirect_uri=" . REDIRECT_URI;
     $link .= "&scope=openid email https://www.googleapis.com/auth/contacts";
     $link .= "&access_type=offline";
-    $link .= "&state=".$state;
+    $link .= "&state=" . $state;
 
     $_SESSION['state'] = $state;
 
-    die (json_encode(["link" => $link]));
+    die(json_encode(["link" => $link]));
   }
 
-  public function main(string $phone, string | null $name = null, string | null $email = null): void
-  {
-    //Clean name
-    $name = trim($name . " C-" . time());
-
-    // Load token
-    $token = $this->loadToken();
-    if (!$token) {
-
-      die(json_encode("Failed to load or refresh token."));
-    }
-
-    // Prepare contact payload
-    $contactPayload = [
-      "names" => [
-        ["displayName" => "Customer", "familyName" => $name]
-      ],
-      "phoneNumbers" => [
-        ["value" => $phone]
-      ],
-    ];
-
-    if ($email) {
-      $contactPayload["emailAddresses"] = [
-        ["value" => $email]
-      ];
-    }
-
-    $response = $this->sendCurlRequest(
-      "https://people.googleapis.com/v1/people:createContact",
-      "POST",
-      [
-        "Authorization: Bearer " . $token,
-        "Content-Type: application/json"
-      ],
-      json_encode($contactPayload)
-    );
-
-    if (isset($response['error'])) {
-
-      die(json_encode("Error: " . $response['error']));
-    } else {
-
-      die(json_encode($response['status'] == 200 ? "Success" : "Failed"));
-    }
-  }
-
-  public function newUser($token): string | null
+  public function logIn($token): string | null
   {
 
     $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
@@ -475,6 +503,99 @@ class Functions
     die(json_encode(True));
   }
 
+  public function main(string $contactPayload): void
+  {
+
+    // Load token
+    $token = $this->loadToken();
+    if (!$token) {
+
+      die(json_encode("Failed to load or refresh token."));
+    }
+
+    $response = $this->sendCurlRequest(
+      "https://people.googleapis.com/v1/people:createContact",
+      "POST",
+      [
+        "Authorization: Bearer " . $token,
+        "Content-Type: application/json"
+      ],
+      $contactPayload
+    );
+
+    if (isset($response['error'])) {
+
+      die(json_encode("Error: " . $response['error']));
+    } else {
+
+      die(json_encode($response['status'] == 200 ? "Success" : "Failed"));
+    }
+  }
+
+  public function contactPayloadBuilder(array $requestBody, string $userId)
+  {
+
+    // Check for user
+    $user = $this->checkUser(strtolower($userId));
+
+    if (! $user) {
+      header("HTTP/1.1 404 EndPoint Not Found");
+
+      http_response_code(404);
+
+      die(json_encode([
+        'Message' => 'EndPoint Not Found',
+        'Allowed' => ['/', '/callback', '/ping'],
+      ]));
+    }
+
+
+    if (! empty($requestBody['phone'])) {
+
+      if ($phoneNumber = $this->validatePhoneNumber($requestBody['phone'])) {
+
+        $name = $requestBody['name'] ?? null;
+        $email = $requestBody['email'] ?? null;
+
+        ###############################
+        //Clean name
+        $name = trim($name . " C-" . time());
+
+        // Prepare contact payload
+        $contactPayload = [
+          "names" => [
+            ["displayName" => "Customer", "familyName" => $name]
+          ],
+          "phoneNumbers" => [
+            ["value" => $phoneNumber]
+          ],
+        ];
+
+        if ($email) {
+          $contactPayload["emailAddresses"] = [
+            ["value" => $email]
+          ];
+        }
+
+        $this->main(json_encode($contactPayload));
+      } else {
+
+        header("HTTP/1.1 400 Invalid Phone Number");
+
+        http_response_code(400);
+
+        die(json_encode("invalid phone number"));
+      }
+    } else {
+
+      header("HTTP/1.1 400 Requires Phone Number");
+
+      http_response_code(400);
+
+      die(json_encode("Phone number is required."));
+    }
+  }
+
   public function ping($text): void
   {
     die(json_encode([
@@ -482,19 +603,5 @@ class Functions
       "Method" => $text,
       "Response" => "Pong!"
     ]));
-  }
-
-  public function validatePhoneNumber(string $phone): bool | string
-  {
-    // Remove common separators
-    $clean = preg_replace('/[\s\-\(\)\.]/', '', $phone);
-
-    // Must start with optional + followed by digits only
-    if (!preg_match('/^\+?[0-9]{7,15}$/', $clean)) {
-
-      return false;
-    }
-
-    return $clean;
   }
 }

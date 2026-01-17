@@ -47,41 +47,11 @@ class Controller
 
         $this -> functions -> buildLink();
 
-      case 'main':
-        if ($this->method !== 'POST') $this->methodNotAllowed(['POST']);
-
-        if (! empty($this -> requestBody['phone'])) {
-
-          if ($phoneNumber = $this -> functions -> validatePhoneNumber($this->requestBody['phone'])) {
-
-            $name = $this->requestBody['name'] ?? null;
-            $email = $this->requestBody['email'] ?? null;
-
-            $this -> functions -> main($phoneNumber, $name, $email);
-
-          } else {
-
-            header("HTTP/1.1 400 Invalid Phone Number");
-
-            http_response_code(400);
-
-            die (json_encode("invalid phone number"));
-          }
-        } else {
-
-          header("HTTP/1.1 400 Requires Phone Number");
-
-          http_response_code(400);
-
-          die (json_encode("Phone number is required."));
-        }
-        break;
-
       case "callback":
         if ($this -> method !== 'GET') $this -> methodNotAllowed(['GET']);
 
         if (! empty($this->requestBody['code'])) {
-          $this -> functions -> newUser($this->requestBody['code']);
+          $this -> functions -> logIn($this->requestBody['code']);
         }
         break;
 
@@ -89,11 +59,14 @@ class Controller
         $this->functions->ping($this -> method);
 
       default:
-        return $this->endpointNotFound();
+        if ($this->method !== 'POST') $this->methodNotAllowed(['POST']);
+        
+        $this->functions->contactPayloadBuilder($this->requestBody, strtolower($this -> route));
 
       /*
       Endpoints:
-      Onboarding \POST  
+      login \GET
+      Onboarding \POST  ✔️
       Main \POST  ✔️
       Callback \GET  ✔️
       Ping \*  ✔️
