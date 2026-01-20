@@ -2,7 +2,7 @@
 
 define('CONFIG_PATH', __DIR__ . '/.ignore/');
 define('TOKEN_PATH', CONFIG_PATH . 'token');
-define('REDIRECT_URI', "http://localhost:5600/callback");
+define('REDIRECT_URI', "https://localhost:5601/callback");
 
 if (!file_exists(CONFIG_PATH . 'keys.json')) {
   die(json_encode("Missing keys"));
@@ -21,12 +21,16 @@ class Functions
 {
 
   //Helper functions
-
-  private function base64url_decode($data)
+  private function base64urlDecode($data)
   {
     $remainder = strlen($data) % 4;
     if ($remainder) $data .= str_repeat('=', 4 - $remainder);
     return base64_decode(strtr($data, '-_', '+/'));
+  }
+
+  private function base64urlEncode(string $data): string
+  {
+    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
   }
 
   function charKra(string $input): int
@@ -41,9 +45,16 @@ class Functions
     return $energy;
   }
 
-  public function checkUser()
+  private function checkUser(string $user): string | null
   {
-    // code...
+    $userFilePath = CONFIG_PATH . $user;
+
+    if (file_exists($userFilePath)) {
+
+      return $userFilePath;
+    }
+
+    return null;
   }
 
   private function decryptSecret(string $encryptedBase64, string $passphrase = KEY['keys']): string
@@ -132,9 +143,9 @@ class Functions
     $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
 
     list($headerB64, $payloadB64, $sigB64) = explode('.', $idToken);
-    $header = json_decode($this->base64url_decode($headerB64), true);
-    $payload = json_decode($this->base64url_decode($payloadB64), true);
-    $signature = $this->base64url_decode($sigB64);
+    $header = json_decode($this->base64urlDecode($headerB64), true);
+    $payload = json_decode($this->base64urlDecode($payloadB64), true);
+    $signature = $this->base64urlDecode($sigB64);
 
     $kid = $header['kid'] ?? null;
     $alg = $header['alg'] ?? null;
@@ -225,8 +236,8 @@ class Functions
 
   private function jwkToPem(string $n, string $e): string
   {
-    $modulus  = $this->base64url_decode($n);
-    $exponent = $this->base64url_decode($e);
+    $modulus  = $this->base64urlDecode($n);
+    $exponent = $this->base64urlDecode($e);
 
     // ASN.1 encoding helpers
     $encodeLength = function ($length) {
@@ -272,18 +283,94 @@ class Functions
       "-----END PUBLIC KEY-----\n";
   }
 
-  private function loadToken(): array | null
+  private function jwtDecode(string $jwt): array|false
+  {
+    $parts = explode('.', $jwt);
+
+    if (count($parts) !== 3) {
+      return false;
+    }
+
+    [$headerEncoded, $payloadEncoded, $signatureProvided] = $parts;
+
+    $signatureCheck = $this->base64urlEncode(
+      hash_hmac(
+        'sha256',
+        $headerEncoded . '.' . $payloadEncoded,
+        KEY['server_secret'],
+        true
+      )
+    );
+
+    // Constant-time comparison
+    if (!hash_equals($signatureCheck, $signatureProvided)) {
+      return false;
+    }
+
+    $payload = json_decode($this->base64urlDecode($payloadEncoded), true);
+
+    if (!is_array($payload)) {
+      return false;
+    }
+
+    $now = time();
+
+    if (
+      isset($payload['exp']) && $payload['exp'] < $now ||
+      isset($payload['iat']) && $payload['iat'] > $now
+    ) {
+      return false;
+    }
+
+    return $payload;
+  }
+
+  private function jwtEncode(array $payload, int $ttlSeconds = 602800): string
+  {
+    $header = [
+      'alg' => 'HS256',
+      'typ' => 'JWT'
+    ];
+
+    $now = time();
+
+    // Mandatory metadata
+    $payload['iat'] = $now;
+    $payload['exp'] = $now + $ttlSeconds;
+
+    $headerEncoded  = $this->base64urlEncode(json_encode($header, JSON_UNESCAPED_SLASHES));
+    $payloadEncoded = $this->base64urlEncode(json_encode($payload, JSON_UNESCAPED_SLASHES));
+
+    $signature = hash_hmac(
+      'sha256',
+      $headerEncoded . '.' . $payloadEncoded,
+      KEY['server_secret'],
+      true
+    );
+
+    $signatureEncoded = $this->base64urlEncode($signature);
+
+    return $headerEncoded . '.' . $payloadEncoded . '.' . $signatureEncoded;
+  }
+
+  private function loadToken(string $user = "token"): array | null
   {
 
-    if (file_exists(TOKEN_PATH)) {
-      $tokenData = json_decode($this->decryptSecret(file_get_contents(TOKEN_PATH), KEY['token']), true);
+    if ($userFilePath = $this->checkUser($user)) {
+      $tokenData = json_decode(
+        $this->decryptSecret(
+          file_get_contents($userFilePath),
+          $this->passwordMaker($user)
+        ),
+        true
+      );
 
       if (isset($tokenData['expires_at']) && $tokenData['expires_at'] < time()) {
         // Token has expired
         return $this->refreshToken($tokenData['refresh_token']);
       }
 
-      return $tokenData;
+      return $tokenData ?? null;
     }
 
     return null;
@@ -308,7 +395,7 @@ class Functions
     return $y;
   }
 
-  private function refreshToken(string $refreshToken): array | null
+  private function refreshToken(string $refreshToken, string $user = "token"): array | null
   {
 
     $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
@@ -355,15 +442,50 @@ class Functions
 
     ];
 
-    $this->saveToken($tokenData);
+    $this->saveToken($tokenData, $user);
 
     return $tokenData;
   }
 
-  private function saveToken(array $tokenResponse, string $user = TOKEN_PATH): void
+  private function saveToken(array $tokenResponse, string $user = "token"): void
   {
 
-    file_put_contents($user, $this->encryptSecret(json_encode($tokenResponse), $this->passwordMaker($user)));
+    $userFilePath = CONFIG_PATH . $user;
+    $payload = [];
+
+    //check if file exists
+    if ($this->checkUser($user)) {
+
+      $payload = json_decode(
+        $this->decryptSecret(
+          file_get_contents($userFilePath),
+          $this->passwordMaker($user)
+        ),
+        true
+      );
+
+      if (! isset($payload['access_token'])) {
+        header("HTTP/1.1 500 Internal Error!");
+
+        http_response_code(500);
+
+        die(json_encode('Error: Server Error!'));
+      }
+
+      foreach ($tokenResponse as $key => $value) {
+        $payload[$key] = $value;
+      }
+    } else {
+      $payload = $tokenResponse;
+    }
+
+    file_put_contents(
+      $userFilePath,
+      $this->encryptSecret(
+        json_encode($payload),
+        $this->passwordMaker($user)
+      )
+    );
   }
 
   private function sendCurlRequest(string $url, string $method = "GET", array $headers = [], array | string  | null $body = null): string | array
@@ -420,9 +542,7 @@ class Functions
     return $clean;
   }
 
-
   // Public functions
-
   public function buildLink()
   {
 
@@ -441,95 +561,10 @@ class Functions
 
     $_SESSION['state'] = $state;
 
+    header("location: " . $link);
+
+    //header("location: https://localhost:5601/callback?code=test");
     die(json_encode(["link" => $link]));
-  }
-
-  public function logIn($token): string | null
-  {
-
-    $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
-
-    $payload = [
-      "client_id" => $SECRETS['client_id'],
-      "client_secret" => $SECRETS['client_secret'],
-      "code" => $token,
-      "grant_type" => "authorization_code",
-      "redirect_uri" => REDIRECT_URI
-    ];
-
-    $newToken = $this->sendCurlRequest(
-      "https://oauth2.googleapis.com/token",
-      "POST",
-      ["Content-Type" => "application/x-www-form-urlencoded"],
-      $payload,
-    );
-
-    if (isset($newToken['error'])) {
-
-      die(json_encode($newToken['error']));
-    }
-
-    if (! $newToken['response']) die(json_encode("Error requesting token."));
-
-    $tokenResponse = json_decode($newToken['response'], true);
-
-    $accessToken = $tokenResponse['access_token'] ?? null;
-    $refreshToken = $tokenResponse['refresh_token'] ?? null;
-    $idToken = $tokenResponse['id_token'] ?? null;
-    $expiresIn = $tokenResponse['expires_in'] ?? null;
-
-    if (!$accessToken || !$idToken) die(json_encode("Invalid token response."));
-
-    $payload = $this->extractEmail($idToken);
-
-    if (! $payload) die(0);
-
-    $expiresAt = time() + $expiresIn;
-
-    // Save new token data
-    $tokenData = [
-
-      "access_token" => $accessToken,
-      "refresh_token" => $refreshToken,
-      "user_id" => $payload['user_id'],
-      "user_email" => $payload['user_email'],
-      "expires_at" => $expiresAt
-
-    ];
-
-    $this->saveToken($tokenData); //We are going to not be doing this
-
-    header("location: http://localhost:5500/sandbox/landing.html");
-    die(json_encode(True));
-  }
-
-  public function main(string $contactPayload): void
-  {
-
-    // Load token
-    $token = $this->loadToken();
-    if (!$token) {
-
-      die(json_encode("Failed to load or refresh token."));
-    }
-
-    $response = $this->sendCurlRequest(
-      "https://people.googleapis.com/v1/people:createContact",
-      "POST",
-      [
-        "Authorization: Bearer " . $token,
-        "Content-Type: application/json"
-      ],
-      $contactPayload
-    );
-
-    if (isset($response['error'])) {
-
-      die(json_encode("Error: " . $response['error']));
-    } else {
-
-      die(json_encode($response['status'] == 200 ? "Success" : "Failed"));
-    }
   }
 
   public function contactPayloadBuilder(array $requestBody, string $userId)
@@ -548,7 +583,6 @@ class Functions
         'Allowed' => ['/', '/callback', '/ping'],
       ]));
     }
-
 
     if (! empty($requestBody['phone'])) {
 
@@ -577,7 +611,7 @@ class Functions
           ];
         }
 
-        $this->main(json_encode($contactPayload));
+        $this->main(json_encode($contactPayload), $userId);
       } else {
 
         header("HTTP/1.1 400 Invalid Phone Number");
@@ -596,12 +630,153 @@ class Functions
     }
   }
 
+  public function logIn($token): string | null
+  {
+
+    session_start();
+
+    $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
+
+    $payload = [
+      "client_id" => $SECRETS['client_id'],
+      "client_secret" => $SECRETS['client_secret'],
+      "code" => $token,
+      "grant_type" => "authorization_code",
+      "redirect_uri" => REDIRECT_URI
+    ];
+
+    $newToken = $this->sendCurlRequest(
+      "https://oauth2.googleapis.com/token",
+      "POST",
+      ["Content-Type" => "application/x-www-form-urlencoded"],
+      $payload,
+    );
+
+    if (isset($newToken['error'])) {
+
+      die(json_encode(['Error' => $newToken['error']]));
+    }
+
+    if (! $newToken['response']) die(json_encode(["Error" => "Error requesting token."]));
+
+    $tokenResponse = json_decode($newToken['response'], true);
+
+    $accessToken = $tokenResponse['access_token'] ?? null;
+    $refreshToken = $tokenResponse['refresh_token'] ?? null;
+    $idToken = $tokenResponse['id_token'] ?? null;
+    $expiresIn = $tokenResponse['expires_in'] ?? null;
+
+    if (!$accessToken || !$idToken) die(json_encode(["Error" => "Invalid token response."]));
+
+    $payload = $this->extractEmail($idToken);
+
+    if (! $payload) die(json_encode(["Error" => "Failed to extract email"]));
+
+    $expiresAt = time() + $expiresIn;
+
+    $secretKey = bin2hex(random_bytes(16));
+
+    // Save new token data
+    $tokenData = [
+
+      "access_token" => $accessToken,
+      "refresh_token" => $refreshToken,
+      "user_id" => $payload['user_id'],
+      "user_email" => $payload['user_email'],
+      "expires_at" => $expiresAt,
+      "secret_key" => $secretKey
+
+    ];
+
+    setcookie(
+      "refresh_token",
+      $this->jwtEncode([
+        'user_id' => $payload['user_id'],
+        'user_id' => 'user_id',
+        'secret_key' => $secretKey,
+        //'secret_key' => 'secretKey',
+        'expires_at' => time() + 604800, // 7 days
+      ]),
+      [
+        'expires' => time() + 604800, // 7 days
+        'path' => '/',
+        //'domain' => 'localhost', // optional, your domain
+        'secure' => true, // only HTTPS
+        'httponly' => true, // not accessible to JS
+        'samesite' => 'none' // prevent CSRF
+      ]
+    );
+
+    //$this->saveToken($tokenData, $payload['user_id']); //We are going to not be doing this
+
+    $data = $this->jwtEncode([
+      //'user_id' => $payload['user_id'],
+      'user_id' => 'user_id',
+      //'secret_key' => $secretKey,
+      'secret_key' => 'secretKey',
+      'expires_at' => time() + 604800, // 7 days
+    ]);
+    $data = $this->encryptSecret($data);
+    $data = json_encode($data);
+    
+    die(json_encode(True));
+  }
+
+  public function main(string $contactPayload, string $user = "token"): void
+  {
+
+    // Load token
+    $token = $this->loadToken($user);
+    $token = $token['access_token'] ?? null;
+
+    if (!$token) {
+
+      header("HTTP/1.1 404 Token Not Found");
+
+      http_response_code(404);
+
+      die(json_encode("Failed to load or refresh token."));
+    }
+
+    $response = $this->sendCurlRequest(
+      "https://people.googleapis.com/v1/people:createContact",
+      "POST",
+      [
+        "Authorization: Bearer " . $token,
+        "Content-Type: application/json"
+      ],
+      $contactPayload
+    );
+
+    if (isset($response['error'])) {
+
+      //die(json_encode("Error: " . $response['error']));
+      die(json_encode("Error!"));
+    } else {
+
+      die(json_encode($response['status'] == 200 ? "Success" : "Failed"));
+    }
+  }
+
   public function ping($text): void
   {
-    die(json_encode([
+
+    session_start();
+
+    $payload = [
       "Time" => time(),
       "Method" => $text,
       "Response" => "Pong!"
-    ]));
+    ];
+
+    if (! empty($_COOKIE['refresh_token'])) {
+      $jwtPayload = $this->jwtDecode($_COOKIE['refresh_token']);
+
+      if ($jwtPayload) {
+        $payload['User'] = $jwtPayload['user_id'];
+        $payload['secret_key'] = $jwtPayload['secret_key'];
+      }
+    }
+    die(json_encode(["Payload" => $payload]));
   }
 }
