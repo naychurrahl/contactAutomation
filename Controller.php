@@ -68,7 +68,7 @@ class Controller
 
           setcookie(
             "state",
-            $state,
+            "state",
             [
               'expires' => time() - (600), // 7 days
               'path' => '/',
@@ -85,6 +85,10 @@ class Controller
         die(json_encode('no state'));
         break;
 
+      case "logout":
+
+        $this -> functions -> logOut();
+        break;
       case "ping": //Ping
         $this->functions->ping($this -> method);
 

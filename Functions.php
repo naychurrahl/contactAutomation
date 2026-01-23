@@ -658,7 +658,7 @@ class Functions
     }
   }
 
-  public function logIn($token): string | null
+  public function logIn(string $token): string | null
   {
 
     $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
@@ -735,6 +735,28 @@ class Functions
     
     header("location: https://localhost:5500/sandbox/dashboard.html");
     die(json_encode(True));
+  }
+
+  public function logOut(): void
+  {
+
+    if (! isset($_COOKIE['refresh_token']) || empty($_COOKIE['refresh_token'])) 
+      die(json_encode(true));
+
+    setcookie(
+      "refresh_token",
+      '',
+      [
+        'expires' => time() - (600), // 7 days
+        'path' => '/',
+        //'domain' => 'localhost', // optional, your domain
+        'secure' => true, // only HTTPS
+        'httponly' => true, // not accessible to JS
+        'samesite' => 'none' // prevent CSRF
+      ]
+    );
+
+    header("location: https://localhost:5600/logout");
   }
 
   public function main(string $contactPayload, string $user = "token"): void
