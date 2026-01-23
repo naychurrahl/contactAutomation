@@ -51,9 +51,38 @@ class Controller
       case "callback": //onboarding
         if ($this -> method !== 'GET') $this -> methodNotAllowed(['GET']);
 
-        if (! empty($this->requestBody['code'])) {
+        if (! empty($this->requestBody['code']) && ! empty($this->requestBody['state'])) {
+          //session_start();
+
+          $state = $this->requestBody['state'];
+
+          $newState = $_COOKIE['state'] ?? null;
+
+          if ($state !== $newState) {
+            header("HTTP/1.1 400 Missing or invalid state");
+
+            http_response_code(400);
+
+            die(json_encode(["Error"=> 'Missing or invalid state.']));
+          }
+
+          setcookie(
+            "state",
+            $state,
+            [
+              'expires' => time() - (600), // 7 days
+              'path' => '/',
+              //'domain' => 'localhost', // optional, your domain
+              'secure' => true, // only HTTPS
+              'httponly' => true, // not accessible to JS
+              'samesite' => 'none' // prevent CSRF
+            ]
+          );
+          
           $this -> functions -> logIn($this->requestBody['code']);
         }
+        
+        die(json_encode('no state'));
         break;
 
       case "ping": //Ping

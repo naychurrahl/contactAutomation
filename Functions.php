@@ -546,8 +546,6 @@ class Functions
   public function buildLink()
   {
 
-    session_start();
-
     $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
     $state = uniqid();
 
@@ -559,12 +557,20 @@ class Functions
     $link .= "&access_type=offline";
     $link .= "&state=" . $state;
 
-    $_SESSION['state'] = $state;
+    setcookie(
+      "state",
+      $state,
+      [
+        'expires' => time() + (600), // 7 days
+        'path' => '/',
+        //'domain' => 'localhost', // optional, your domain
+        'secure' => true, // only HTTPS
+        'httponly' => true, // not accessible to JS
+        'samesite' => 'none' // prevent CSRF
+      ]
+    );
 
-    header("location: " . $link);
-
-    //header("location: https://localhost:5601/callback?code=test");
-    die(json_encode(["link" => $link]));
+    die(json_encode(["link" => REDIRECT_URI . "?code=test&state=" . $state]));
   }
 
   public function contactPayloadBuilder(array $requestBody, string $userId)
@@ -633,7 +639,7 @@ class Functions
   public function logIn($token): string | null
   {
 
-    session_start();
+    die(json_encode($token));
 
     $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
 
