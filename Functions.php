@@ -355,7 +355,7 @@ class Functions
 
   private function loadToken(string $user = "token"): array | null
   {
-
+    
     if ($userFilePath = $this->checkUser($user)) {
       $tokenData = json_decode(
         $this->decryptSecret(
@@ -364,16 +364,17 @@ class Functions
         ),
         true
       );
-
-      if (isset($tokenData['expires_at']) && $tokenData['expires_at'] < time()) {
+      
+      if (isset($tokenData['expires_at']) && $tokenData['expires_at'] > time()) {
         // Token has expired
+        die(json_encode($tokenData));
         return $this->refreshToken($tokenData['refresh_token']);
       }
 
-      return $tokenData ?? null;
+      return $tokenData ?? ["nulil"];
     }
 
-    return null;
+    return ["nully"];
   }
 
   private function passwordMaker(string $input, string $KERNEL_SECRET = 'sha256'): string
@@ -546,6 +547,26 @@ class Functions
   public function buildLink()
   {
 
+    $token = $_COOKIE['refresh_token'] ?? null;
+    //Check if logged in
+
+    if (! empty($token)){
+
+      $jwtPayload = $this->jwtDecode($_COOKIE['refresh_token']);
+
+      if ($jwtPayload) {
+        $db = $this -> loadToken($jwtPayload['user_id']);
+
+        if (!empty($db)){
+          if ($jwtPayload['secret_key'] === $db['secret_key']){
+            die(json_encode(["link" => "https://localhost:5500/sandbox/dashboard.html"]));
+          }
+
+        }
+      }
+    }
+
+
     $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
     $state = uniqid();
 
@@ -697,9 +718,7 @@ class Functions
       "refresh_token",
       $this->jwtEncode([
         'user_id' => $payload['user_id'],
-        'user_id' => 'user_id',
         'secret_key' => $secretKey,
-        //'secret_key' => 'secretKey',
         'expires_at' => time() + 604800, // 7 days
       ]),
       [
@@ -773,6 +792,9 @@ class Functions
         $payload['secret_key'] = $jwtPayload['secret_key'];
       }
     }
+
+    $payload = $this -> loadToken($payload['User']);
+
     die(json_encode(["Payload" => $payload]));
   }
 }
