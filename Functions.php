@@ -570,7 +570,8 @@ class Functions
       ]
     );
 
-    die(json_encode(["link" => REDIRECT_URI . "?code=test&state=" . $state]));
+    die(json_encode(["link" => $link]));
+    //die(json_encode(["link" => REDIRECT_URI . "?code=test&state=" . $state]));
   }
 
   public function contactPayloadBuilder(array $requestBody, string $userId)
@@ -638,8 +639,6 @@ class Functions
 
   public function logIn($token): string | null
   {
-
-    die(json_encode($token));
 
     $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
 
@@ -713,18 +712,9 @@ class Functions
       ]
     );
 
-    //$this->saveToken($tokenData, $payload['user_id']); //We are going to not be doing this
-
-    $data = $this->jwtEncode([
-      //'user_id' => $payload['user_id'],
-      'user_id' => 'user_id',
-      //'secret_key' => $secretKey,
-      'secret_key' => 'secretKey',
-      'expires_at' => time() + 604800, // 7 days
-    ]);
-    $data = $this->encryptSecret($data);
-    $data = json_encode($data);
+    $this->saveToken($tokenData, $payload['user_id']); //We are going to not be doing this
     
+    header("location: https://localhost:5500/sandbox/dashboard.html");
     die(json_encode(True));
   }
 
