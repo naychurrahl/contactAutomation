@@ -865,6 +865,8 @@ class Functions
       }
     }
 
+    $this -> settings();
+    
     die(json_encode(["Payload" => $payload]));
   }
 
