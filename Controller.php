@@ -103,6 +103,48 @@ class Controller
       case "ping": //Ping
         $this->functions->ping($this -> method);
 
+      case "settings":
+
+        if ($this->method !== 'POST') $this->methodNotAllowed(['POST']);
+        try {
+          //code...
+          $field = trim($this -> requestBody['field']) ?? null;
+          $value = trim($this -> requestBody['value']) ?? null;
+  
+          if (! $field || ! $value)
+          {
+            throw new Exception("Missing Field or Value", 400);
+            
+          }
+
+
+          $field = strtolower($field);
+
+          $allowed = [
+            "name",
+            "custommessage",
+            "prefix",
+            "suffix",
+            "callbackurl"
+          ];
+
+          if (! in_array($field, $allowed))
+          {
+            throw new Exception("Invalid Field", 400);
+          }
+          
+          $this -> functions -> settings([$field => $value]);
+
+        } catch (\Throwable $th) {
+          header("HTTP/1.1 400 Field or Value Issue");
+
+          http_response_code(400);
+
+          die(json_encode(['Error' => $th -> getMessage()]));
+
+        }
+        break;
+
       default: //Main
         if ($this->method !== 'POST') $this->methodNotAllowed(['POST']);
         
