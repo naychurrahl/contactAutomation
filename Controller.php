@@ -93,7 +93,7 @@ class Controller
 
         if ($this->method !== 'GET') $this->methodNotAllowed(['GET']);
 
-        $this -> functions -> dashBoard($this -> load);
+        $this -> functions -> dashBoard();
         break;
 
       case "logout":

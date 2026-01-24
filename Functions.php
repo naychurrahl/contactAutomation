@@ -371,10 +371,10 @@ class Functions
         return $this->refreshToken($tokenData['refresh_token']);
       }
 
-      return $tokenData ?? ["nulil"];
+      return $tokenData ?? null;
     }
 
-    return ["nully"];
+    return null;
   }
 
   private function passwordMaker(string $input, string $KERNEL_SECRET = 'sha256'): string
@@ -657,7 +657,7 @@ class Functions
     }
   }
 
-  public function dashBoard(string $user): void
+  public function dashBoard(): void
   {
 
     if (empty($_COOKIE['refresh_token']) || ! isset($_COOKIE['refresh_token'])) {
@@ -682,6 +682,7 @@ class Functions
       ]));
     }
 
+    $user = $jwtPayload['user_id'];
     $JWTSecretKey = $jwtPayload['secret_key'];
     
     $deets = $this->loadToken($user);
@@ -861,12 +862,15 @@ class Functions
 
       if ($jwtPayload) {
         $payload['User'] = $jwtPayload['user_id'];
-        $payload['secret_key'] = $jwtPayload['secret_key'];
       }
     }
 
-    $this->dashBoard($payload['User']);
-
     die(json_encode(["Payload" => $payload]));
+  }
+
+  public function settings(): void
+  {
+    //Code ...
+    die(json_encode('Here'));
   }
 }
