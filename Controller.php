@@ -13,10 +13,14 @@ class Controller
 
   private $route;
 
+  private $load;
+
   public function __construct($path, $method)
   {
 
     $this->route  = $path[0] ?? null;
+
+    $this->load  = $path[1] ?? null;
 
     $this->method = $method;
 
@@ -85,6 +89,13 @@ class Controller
         die(json_encode('no state'));
         break;
 
+      case 'dashboard':
+
+        if ($this->method !== 'GET') $this->methodNotAllowed(['GET']);
+
+        $this -> functions -> dashBoard($this -> load);
+        break;
+
       case "logout":
 
         $this -> functions -> logOut();
@@ -97,14 +108,6 @@ class Controller
         
         //The route is the form owner's user ID
         $this->functions->contactPayloadBuilder($this->requestBody, strtolower($this -> route));
-
-      /*
-      Endpoints: 
-      login \GET 
-      Main \POST  ✔️
-      Callback \GET  ✔️
-      Ping \*  ✔️
-       */
     }
   }
 

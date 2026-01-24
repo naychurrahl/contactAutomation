@@ -355,7 +355,7 @@ class Functions
 
   private function loadToken(string $user = "token"): array | null
   {
-    
+
     if ($userFilePath = $this->checkUser($user)) {
       $tokenData = json_decode(
         $this->decryptSecret(
@@ -364,7 +364,7 @@ class Functions
         ),
         true
       );
-      
+
       if (isset($tokenData['expires_at']) && $tokenData['expires_at'] > time()) {
         // Token has expired
         die(json_encode($tokenData));
@@ -550,18 +550,17 @@ class Functions
     $token = $_COOKIE['refresh_token'] ?? null;
     //Check if logged in
 
-    if (! empty($token)){
+    if (! empty($token)) {
 
       $jwtPayload = $this->jwtDecode($_COOKIE['refresh_token']);
 
       if ($jwtPayload) {
-        $db = $this -> loadToken($jwtPayload['user_id']);
+        $db = $this->loadToken($jwtPayload['user_id']);
 
-        if (!empty($db)){
-          if ($jwtPayload['secret_key'] === $db['secret_key']){
+        if (!empty($db)) {
+          if ($jwtPayload['secret_key'] === $db['secret_key']) {
             die(json_encode(["link" => "https://localhost:5500/sandbox/dashboard.html"]));
           }
-
         }
       }
     }
@@ -658,6 +657,59 @@ class Functions
     }
   }
 
+  public function dashBoard(string $user): void
+  {
+
+    if (empty($_COOKIE['refresh_token']) || ! isset($_COOKIE['refresh_token'])) {
+      header("HTTP/1.1 401 Unauthorized");
+
+      http_response_code(401);
+
+      die(json_encode([
+        'Error' => 'Unauthorized'
+      ]));
+    }
+    
+    $jwtPayload = $this->jwtDecode($_COOKIE['refresh_token']);
+
+    if (! $jwtPayload) {
+      header("HTTP/1.1 500 Internal error");
+
+      http_response_code(500);
+
+      die(json_encode([
+        'Error' => 'Server Issue'
+      ]));
+    }
+
+    $JWTSecretKey = $jwtPayload['secret_key'];
+    
+    $deets = $this->loadToken($user);
+    
+    //comparer keys
+    if (! $deets || ($JWTSecretKey !== '$deets["secret_key"]')) {
+      header("HTTP/1.1 401 Unauthorized");
+
+      http_response_code(401);
+
+      die(json_encode([
+        'Error' => 'Unauthorized'
+      ]));
+    }
+
+    $payload['name'] = $deets['name'] ?? "Anonymous";
+    $payload['email'] = $deets['user_email'];
+    $payload['user_id'] = $deets['user_id'];
+    $payload['tokens'] = $deets['tokens'] ?? 0;
+    $payload['contacts_saved'] = $deets['contacts_saved'] ?? 0;
+    $payload['custom_message'] = $deets['custom_message'] ?? 'Add a custom message';
+    $payload['prefix'] = $deets['prefix'] ?? "something before contacts's name";
+    $payload['suffix'] = $deets['suffix'] ?? "something after contacts's name";
+    $payload['call_back'] = $deets['call_back'] ?? "Whatsapp link maybe or website";
+
+    die(json_encode($payload));
+  }
+
   public function logIn(string $token): string | null
   {
 
@@ -732,7 +784,7 @@ class Functions
     );
 
     $this->saveToken($tokenData, $payload['user_id']); //We are going to not be doing this
-    
+
     header("location: https://localhost:5500/sandbox/dashboard.html");
     die(json_encode(True));
   }
@@ -740,7 +792,7 @@ class Functions
   public function logOut(): void
   {
 
-    if (! isset($_COOKIE['refresh_token']) || empty($_COOKIE['refresh_token'])) 
+    if (! isset($_COOKIE['refresh_token']) || empty($_COOKIE['refresh_token']))
       die(json_encode(true));
 
     setcookie(
@@ -798,8 +850,6 @@ class Functions
   public function ping($text): void
   {
 
-    session_start();
-
     $payload = [
       "Time" => time(),
       "Method" => $text,
@@ -815,7 +865,7 @@ class Functions
       }
     }
 
-    $payload = $this -> loadToken($payload['User']);
+    $this->dashBoard($payload['User']);
 
     die(json_encode(["Payload" => $payload]));
   }
