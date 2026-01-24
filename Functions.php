@@ -687,7 +687,7 @@ class Functions
     $deets = $this->loadToken($user);
     
     //comparer keys
-    if (! $deets || ($JWTSecretKey !== '$deets["secret_key"]')) {
+    if (! $deets || ($JWTSecretKey !== $deets["secret_key"])) {
       header("HTTP/1.1 401 Unauthorized");
 
       http_response_code(401);
