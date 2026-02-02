@@ -47,74 +47,71 @@ class Controller
     switch (strtolower($this->route)) {
       case '':
       case '/': //login
+        //die(json_encode("Welcome to the Contact API"));
         if ($this->method !== 'GET') $this->methodNotAllowed(['GET']);
 
-        $this -> functions -> buildLink();
+        $this->functions->buildLink();
         break;
 
       case "callback": //onboarding
-        if ($this -> method !== 'GET') $this -> methodNotAllowed(['GET']);
+        if ($this->method !== 'GET') $this->methodNotAllowed(['GET']);
 
         if (! empty($this->requestBody['code']) && ! empty($this->requestBody['state'])) {
-          //session_start();
 
-          $state = $this->requestBody['state'];
+          $newState = $this->requestBody['state'];
 
-          $newState = $_COOKIE['state'] ?? null;
+          $state = $_COOKIE['state'] ?? null;
+
+          setcookie(
+            "state",
+            "",
+            [
+              'expires' => time() - (600), // 10 minute ago
+              'path' => '/',
+              'secure' => true, // only HTTPS
+              'httponly' => true, // not accessible to JS
+              'samesite' => 'none' // prevent CSRF
+            ]
+          );
 
           if ($state !== $newState) {
             header("HTTP/1.1 400 Missing or invalid state");
 
             http_response_code(400);
 
-            die(json_encode(["Error"=> 'Missing or invalid state.']));
+            die(json_encode(["Error" => 'Missing or invalid state.']));
           }
 
-          setcookie(
-            "state",
-            "state",
-            [
-              'expires' => time() - (600), // 7 days
-              'path' => '/',
-              //'domain' => 'localhost', // optional, your domain
-              'secure' => true, // only HTTPS
-              'httponly' => true, // not accessible to JS
-              'samesite' => 'none' // prevent CSRF
-            ]
-          );
-          
-          $this -> functions -> logIn($this->requestBody['code']);
+          $this->functions->logIn($this->requestBody['code']);
         }
-        
+
         die(json_encode('no state'));
         break;
 
       case 'dashboard':
-
         if ($this->method !== 'GET') $this->methodNotAllowed(['GET']);
 
-        $this -> functions -> dashBoard();
+        $this->functions->dashBoard();
         break;
 
       case "logout":
-
-        $this -> functions -> logOut();
+        $this->functions->logOut();
         break;
+
       case "ping": //Ping
-        $this->functions->ping($this -> method);
+        //die("Here!");
+        $this->functions->ping($this->method);
 
       case "settings":
 
         if ($this->method !== 'POST') $this->methodNotAllowed(['POST']);
         try {
           //code...
-          $field = trim($this -> requestBody['field']) ?? null;
-          $value = trim($this -> requestBody['value']) ?? null;
-  
-          if (! $field || ! $value)
-          {
+          $field = trim($this->requestBody['field']) ?? null;
+          $value = trim($this->requestBody['value']) ?? null;
+
+          if (! $field || ! $value) {
             throw new Exception("Missing Field or Value", 400);
-            
           }
 
 
@@ -128,28 +125,40 @@ class Controller
             "callbackurl"
           ];
 
-          if (! in_array($field, $allowed))
-          {
+          if (! in_array($field, $allowed)) {
             throw new Exception("Invalid Field", 400);
           }
-          
-          $this -> functions -> settings([$field => $value]);
 
+          $this->functions->settings([$field => $value]);
         } catch (\Throwable $th) {
           header("HTTP/1.1 400 Field or Value Issue");
 
           http_response_code(400);
 
-          die(json_encode(['Error' => $th -> getMessage()]));
-
+          die(json_encode(['Error' => $th->getMessage()]));
         }
         break;
 
       default: //Main
-        if ($this->method !== 'POST') $this->methodNotAllowed(['POST']);
-        
+        switch ($this->method) {
+          case 'GET':
+            $this->functions->home($this->route);
+            break;
+
+          case 'POST':
+            # code...
+            $this->functions->contactPayloadBuilder($this->requestBody, strtolower($this->route));
+            break;
+
+          default:
+            //$this->serveFrontend($this->route);
+            $this->methodNotAllowed(['POST', 'GET']);
+            break;
+        }
+        //if ($this->method !== 'POST') $this->methodNotAllowed(['POST']);
+
         //The route is the form owner's user ID
-        $this->functions->contactPayloadBuilder($this->requestBody, strtolower($this -> route));
+        //$this->functions->contactPayloadBuilder($this->requestBody, strtolower($this->route));
     }
   }
 
@@ -157,10 +166,47 @@ class Controller
   {
     http_response_code(405);
     header('Allow: ' . implode(', ', $allowed));
-    die (json_encode([
+    die(json_encode([
       'error' => 'Method Not Allowed',
       'allowed' => implode(', ', $allowed)
     ]));
+  }
+
+  private function serveFrontend($page)
+  {
+    $file = __DIR__ . "/sandbox/$page.html";
+
+    //exit(__DIR__);
+
+    if (file_exists($file)) {
+
+      header('Content-Type: text/html');
+
+      include_once($file);
+
+      exit();
+      //header("location: $file");
+
+    } else {
+
+      $errorPage = __DIR__ . '/sandbox/error.php';
+
+      //exit(json_encode($errorPage));
+
+      if (file_exists($errorPage)) {
+
+        header('Content-Type: text/html');
+
+        include_once($errorPage);
+        //$fil = readfile($errorPage);
+
+        //echo $fil;
+
+      } else {
+
+        echo json_encode("Page not found");
+      }
+    }
   }
 
   private function endpointNotFound(array $allowed = ['/', '/callback', '/ping'])
@@ -170,7 +216,7 @@ class Controller
 
     http_response_code(404);
 
-    die (json_encode([
+    die(json_encode([
       'Message' => 'EndPoint Not Found',
       'Allowed' => $allowed,
     ]));

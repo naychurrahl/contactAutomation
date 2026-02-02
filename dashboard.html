@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🚀 Dashboard</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap");
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        font-family: "Orbitron", sans-serif;
+        background: linear-gradient(135deg, #0a0a0a, #11111a);
+        color: #fff;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start; /* align to top for desktop, better header visibility */
+        padding: 1rem; /* mobile breathing */
+      }
+
+      /* Dashboard container */
+      .dashboard {
+        width: 100%;
+        max-width: 700px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 1rem; /* vertical spacing between header and card */
+        padding: 1rem; /* horizontal breathing for mobile */
+      }
+
+      /* Header */
+      h1 {
+        font-size: clamp(2rem, 6vw, 3rem);
+        text-align: center;
+        color: #0ff;
+        text-shadow:
+          0 0 10px #0ff,
+          0 0 20px #0ff,
+          0 0 30px #0ff;
+        margin: 0;
+        opacity: 0;
+        transform: translateY(-1rem);
+        animation: fadeInUp 0.6s forwards;
+      }
+
+      /* Card */
+      .card {
+        background: linear-gradient(145deg, #11111a, #1c1c2a);
+        border-radius: 1rem;
+        padding: 2rem;
+        box-shadow:
+          0 0 1.2rem #0ff,
+          0 0 2.5rem rgba(0, 255, 255, 0.2);
+        opacity: 0;
+        transform: translateY(0.5rem);
+        animation: fadeInUp 0.6s forwards 0.3s;
+        width: 100%;
+        max-width: 600px;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin: 1rem auto; /* vertical breathing for desktop */
+      }
+
+      /* Rows */
+      .row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.75rem 0;
+        border-bottom: 1px solid rgba(0, 255, 255, 0.1);
+        border-radius: 0.5rem;
+        margin-bottom: 0.25rem;
+        cursor: pointer;
+        min-height: 3rem;
+        transition:
+          transform 0.2s,
+          background 0.2s;
+        gap: 32px;
+      }
+      .row:last-child {
+        border-bottom: none;
+      }
+      .row:hover {
+        transform: translateX(0.5rem);
+        background: rgba(0, 255, 255, 0.05);
+      }
+
+      /* Label/Value */
+      .label {
+        font-weight: 700;
+        color: #0ff;
+        text-shadow: 0 0 0.2rem #0ff;
+        font-size: clamp(0.9rem, 4vw, 1rem);
+        margin-bottom: 0.2rem;
+      }
+      .value {
+        font-weight: 500;
+        color: #fff;
+        font-size: clamp(1rem, 5vw, 1.1rem);
+        text-align: right;
+      }
+      .value.badge {
+        background: #0ff1;
+        color: #00ffea;
+        padding: 0.2rem 0.5rem;
+        border-radius: 0.5rem;
+        font-weight: 700;
+      }
+      .value.badge.use {
+        background: #ff00801a;
+        color: #ff00b3;
+      }
+
+      /* Loading & error */
+      .loading {
+        text-align: center;
+        font-size: clamp(0.9rem, 4vw, 1rem);
+        margin-bottom: 1rem;
+        color: #0ff;
+      }
+      .error {
+        background: #330000;
+        color: #ff5555;
+        padding: 0.7rem;
+        border-radius: 0.6rem;
+        margin-bottom: 1rem;
+        text-align: center;
+        display: none;
+      }
+
+      /* Logout button */
+      .logout-btn {
+        margin-top: 1rem;
+        align-self: center;
+        padding: 0.5rem 1.5rem;
+        background: #ff0055;
+        border: none;
+        border-radius: 1rem;
+        color: #fff;
+        font-weight: bold;
+        font-size: 1rem;
+        cursor: pointer;
+        box-shadow:
+          0 0 0.5rem #ff0055,
+          0 0 1rem rgba(255, 0, 85, 0.4);
+        transition:
+          transform 0.2s,
+          box-shadow 0.3s;
+      }
+      .logout-btn:hover {
+        transform: scale(1.05);
+        box-shadow:
+          0 0 0.8rem #ff0055,
+          0 0 1.5rem rgba(255, 0, 85, 0.6);
+      }
+
+      /* Popup Modal */
+      #modalOverlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(2px);
+        z-index: 999;
+      }
+      #modalBox {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) scale(0.9);
+        background: linear-gradient(145deg, #11111a, #1c1c2a);
+        border-radius: 1rem;
+        padding: 1.5rem;
+        width: 90%;
+        max-width: 320px;
+        box-shadow:
+          0 0 1rem #0ff,
+          0 0 2rem rgba(0, 255, 255, 0.2);
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        opacity: 0;
+        transition:
+          opacity 0.3s,
+          transform 0.3s;
+      }
+      #editModal.show #modalBox {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+      #modalTitle {
+        color: #0ff;
+        text-shadow: 0 0 0.2rem #0ff;
+        margin-bottom: 0.8rem;
+        font-size: 1.2rem;
+      }
+      #modalInput {
+        width: 100%;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        border: none;
+        margin-bottom: 1rem;
+        background: #1c1c2a;
+        color: #fff;
+        font-size: 1rem;
+        outline: none;
+        text-align: center;
+      }
+      #modalSaveBtn {
+        padding: 0.5rem 1.5rem;
+        border: none;
+        border-radius: 0.7rem;
+        background: #0ff;
+        color: #000;
+        font-weight: bold;
+        cursor: pointer;
+        box-shadow:
+          0 0 0.5rem #0ff,
+          0 0 1rem rgba(0, 255, 255, 0.2);
+      }
+      #modalSaveBtn:hover {
+        transform: scale(1.05);
+        box-shadow:
+          0 0 0.8rem #0ff,
+          0 0 1.5rem rgba(0, 255, 255, 0.3);
+      }
+
+      /* Responsive */
+      @media (min-width: 480px) {
+        .row {
+          flex-direction: row;
+          align-items: center;
+        }
+        .label {
+          margin-bottom: 0;
+        }
+        .value {
+          text-align: right;
+        }
+      }
+
+      /* Animations */
+      @keyframes fadeInUp {
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="dashboard">
+      <h1>🚀 Dashboard</h1>
+      <div id="error" class="error"></div>
+      <div id="loading" class="loading">Loading user data…</div>
+
+      <div class="card" id="card" style="display: none">
+        <div class="row" data-editable="true" data-label="Name">
+          <div class="label">Name</div>
+          <div class="value" id="name"></div>
+        </div>
+        <div class="row" data-editable="true" data-label="Email">
+          <div class="label">Email</div>
+          <div class="value" id="email"></div>
+        </div>
+        <div class="row" data-editable="false">
+          <div class="label">User ID</div>
+          <div class="value" id="userId"></div>
+        </div>
+        <div class="row" data-editable="false">
+          <div class="label">Tokens Available</div>
+          <div class="value badge" id="tokens"></div>
+        </div>
+        <div class="row" data-editable="false">
+          <div class="label">Use Count</div>
+          <div class="value badge use" id="useCount"></div>
+        </div>
+        <div class="row" data-editable="true" data-label="Custom Message">
+          <div class="label">Custom Message</div>
+          <div class="value" id="customMessage"></div>
+        </div>
+        <div class="row" data-editable="true" data-label="Prefix">
+          <div class="label">Prefix</div>
+          <div class="value" id="prefix"></div>
+        </div>
+        <div class="row" data-editable="true" data-label="Suffix">
+          <div class="label">Suffix</div>
+          <div class="value" id="suffix"></div>
+        </div>
+        <div class="row" data-editable="true" data-label="Callback URL">
+          <div class="label">Callback URL</div>
+          <div class="value" id="callbackUrl"></div>
+        </div>
+
+        <button class="logout-btn" id="logoutBtn">Log Out</button>
+      </div>
+    </div>
+
+    <!-- Popup -->
+    <div id="editModal" style="display: none">
+      <div id="modalOverlay"></div>
+      <div id="modalBox">
+        <h2 id="modalTitle">Edit Field</h2>
+        <input type="text" id="modalInput" placeholder="Enter value..." />
+        <button id="modalSaveBtn">Save</button>
+      </div>
+    </div>
+
+    <script>
+      // Base API URL
+      const API_BASE = "https://localhost:5601";
+
+      // API request
+      async function apiRequest(
+        endpoint = "",
+        method = "GET",
+        data = null,
+        useCookies = true,
+      ) {
+        const headers = { "Content-Type": "application/json" };
+
+        const options = {
+          method,
+          headers,
+          body: data ? JSON.stringify(data) : null,
+          // If useCookies is true, send HttpOnly cookies automatically
+          credentials: useCookies ? "include" : "same-origin",
+        };
+
+        try {
+          const response = await fetch(`${API_BASE}/${endpoint}`, options);
+
+          if (!response.ok) {
+            throw new Error(`API error: ${await response.text()}`);
+          }
+
+          return await response.json();
+        } catch (error) {
+          console.error("API request failed:", error);
+
+          return null;
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", async () => {
+        const data = await apiRequest("dashboard", "GET", null, true);
+
+        //console.log("Ping data:", data);
+        if (!data) {
+          showError("Yikes! Something went wrong.");
+          location.replace('./');
+        }
+
+        renderUser({
+          name: data.name ?? "John Doe",
+          email: data.email ?? "john@example.com",
+          id: data.user_id ?? "-",
+          tokens_available: data.tokens ?? 0,
+          use_count: data.contacts_saved ?? 0,
+          custom_message: data.custom_message ?? "-",
+          prefix: data.prefix ?? "-",
+          suffix: data.suffix ?? "-",
+          callback_url: data.call_back ?? "-",
+        });
+
+        document
+          .getElementById("logoutBtn")
+          .addEventListener("click", async () => {
+            alert("Logged out!");
+
+            const data = await apiRequest("logout", "GET", null, true);
+          });
+
+        const editModal = document.getElementById("editModal"),
+          modalOverlay = document.getElementById("modalOverlay"),
+          modalInput = document.getElementById("modalInput"),
+          modalSaveBtn = document.getElementById("modalSaveBtn"),
+          modalTitle = document.getElementById("modalTitle");
+        let currentFieldId = null;
+
+        function openEditModal(fieldId, fieldLabel) {
+          currentFieldId = fieldId;
+          modalTitle.textContent = `Edit ${fieldLabel}`;
+          modalInput.value = document.getElementById(fieldId).textContent;
+          editModal.style.display = "block";
+          setTimeout(() => editModal.classList.add("show"), 10);
+          modalInput.focus();
+        }
+        function closeEditModal() {
+          editModal.classList.remove("show");
+          setTimeout(() => (editModal.style.display = "none"), 300);
+        }
+        modalOverlay.addEventListener("click", closeEditModal);
+
+        modalSaveBtn.addEventListener("click", async () => {
+          if (!currentFieldId) return;
+          document.getElementById(currentFieldId).textContent =
+            modalInput.value;
+
+          const payload = {
+            field: currentFieldId,
+            value: modalInput.value
+          };
+
+          try {
+            
+            const data = await apiRequest("settings", "POST", payload);
+
+            if (! data || ! data.status) {
+              throw new Error(`Error occured!`);
+            };
+
+            closeEditModal();
+
+          } catch (error) {
+            showError(`Yikes! ${error}`);
+          }
+
+        });
+
+        modalInput.addEventListener("keyup", (e) => {
+          if (e.key === "Enter") modalSaveBtn.click();
+        });
+
+        document.querySelectorAll(".row").forEach((r) => {
+          if (r.dataset.editable === "true") {
+            r.addEventListener("click", () => {
+              const valDiv = r.querySelector(".value");
+              openEditModal(valDiv.id, r.dataset.label);
+            });
+          }
+        });
+      });
+
+      function renderUser(user) {
+        hideLoading();
+        document.getElementById("name").textContent = user.name || "-";
+        document.getElementById("email").textContent = user.email || "-";
+        document.getElementById("userId").textContent = user.id || "-";
+        animateCount("tokens", user.tokens_available ?? 0);
+        animateCount("useCount", user.use_count ?? 0);
+        document.getElementById("customMessage").textContent =
+          user.custom_message || "-";
+        document.getElementById("prefix").textContent = user.prefix || "-";
+        document.getElementById("suffix").textContent = user.suffix || "-";
+        document.getElementById("callbackUrl").textContent =
+          user.callback_url || "-";
+        document.getElementById("card").style.display = "flex";
+      }
+
+      function animateCount(id, endValue) {
+        const el = document.getElementById(id);
+        let c = 0;
+        const inc = Math.max(1, Math.floor(endValue / 60));
+        const interval = setInterval(() => {
+          c += inc;
+          if (c >= endValue) {
+            c = endValue;
+            clearInterval(interval);
+          }
+          el.textContent = c;
+        }, 15);
+      }
+
+      function showError(msg) {
+        hideLoading();
+        const e = document.getElementById("error");
+        e.textContent = msg;
+        e.style.display = "block";
+      }
+      function hideLoading() {
+        document.getElementById("loading").style.display = "none";
+      }
+    </script>
+  </body>
+</html>

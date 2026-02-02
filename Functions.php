@@ -63,7 +63,8 @@ class Functions
     $data = base64_decode($encryptedBase64, true);
 
     if ($data === false) {
-      throw new InvalidArgumentException('Invalid base64 input');
+      return false;
+      //throw new InvalidArgumentException('Invalid base64 input');
     }
 
     $offset = 0;
@@ -98,7 +99,8 @@ class Functions
     );
 
     if ($plaintext === false) {
-      throw new RuntimeException('Decryption failed or data tampered');
+      return false;
+      //throw new RuntimeException('Decryption failed or data tampered');
     }
 
     return $plaintext;
@@ -355,7 +357,7 @@ class Functions
 
   private function loadToken(string $user = "token"): array | null
   {
-
+    
     if ($userFilePath = $this->checkUser($user)) {
       $tokenData = json_decode(
         $this->decryptSecret(
@@ -364,11 +366,22 @@ class Functions
         ),
         true
       );
-
+      
       if (isset($tokenData['expires_at']) && $tokenData['expires_at'] > time()) {
         // Token has expired
-        die(json_encode($tokenData));
-        return $this->refreshToken($tokenData['refresh_token']);
+        //die(json_encode($tokenData));
+        //return $this->refreshToken($tokenData['refresh_token'], $user);
+        $newTokenData = $this->refreshToken($tokenData['refresh_token'], $user);
+
+        if (! $newTokenData){
+          die(json_encode(["I am the problem" => $tokenData]));
+        }
+
+        $tokenData['access_token'] = $newTokenData['access_token'];
+        $tokenData['user_id'] = $newTokenData['user_id'];
+        $tokenData['user_email'] = $newTokenData['user_email'];
+        $tokenData['expires_at'] = $newTokenData['expires_at'];
+
       }
 
       return $tokenData ?? null;
@@ -421,7 +434,7 @@ class Functions
     $tokenResponse = json_decode($newToken['response'], true);
 
     $accessToken = $tokenResponse['access_token'] ?? null;
-    $refreshToken = $tokenResponse['refresh_token'] ?? null;
+    //$refreshToken = $tokenResponse['refresh_token'] ?? $refreshToken;
     $idToken = $tokenResponse['id_token'] ?? null;
     $expiresIn = $tokenResponse['expires_in'] ?? null;
 
@@ -436,9 +449,9 @@ class Functions
     $tokenData = [
 
       "access_token" => $accessToken,
-      "refresh_token" => $refreshToken,
-      "user_id" => $payload['sub'],
-      "user_email" => $payload['email'],
+      //"refresh_token" => $refreshToken,
+      "user_id" => $payload['user_id'],
+      "user_email" => $payload['user_email'],
       "expires_at" => $expiresAt
 
     ];
@@ -446,13 +459,16 @@ class Functions
     $this->saveToken($tokenData, $user);
 
     return $tokenData;
+    //return $this->loadToken($user);
   }
 
-  private function saveToken(array $tokenResponse, string $user = "token"): void
+  private function saveToken(array $tokenResponse, string $user): void
   {
 
     $userFilePath = CONFIG_PATH . $user;
     $payload = [];
+
+    //die(json_encode([$tokenResponse, $userFilePath]));
 
     //check if file exists
     if ($this->checkUser($user)) {
@@ -548,23 +564,21 @@ class Functions
   {
 
     $token = $_COOKIE['refresh_token'] ?? null;
-    //Check if logged in
 
+    //Check if logged in
     if (! empty($token)) {
 
       $jwtPayload = $this->jwtDecode($_COOKIE['refresh_token']);
 
-      if ($jwtPayload) {
+      //die(json_encode($jwtPayload));
+      if ($jwtPayload && ! empty($jwtPayload['user_id'])) {
         $db = $this->loadToken($jwtPayload['user_id']);
 
-        if (!empty($db)) {
-          if ($jwtPayload['secret_key'] === $db['secret_key']) {
-            die(json_encode(["link" => "https://localhost:5500/sandbox/dashboard.html"]));
-          }
+        if (!empty($db)  && ($jwtPayload['secret_key'] === $db['secret_key'])) {
+          die(json_encode(["linq" => "https://localhost:5500/dashboard"]));
         }
       }
     }
-
 
     $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
     $state = uniqid();
@@ -581,7 +595,7 @@ class Functions
       "state",
       $state,
       [
-        'expires' => time() + (600), // 7 days
+        'expires' => time() + (600), // 10 minutes
         'path' => '/',
         //'domain' => 'localhost', // optional, your domain
         'secure' => true, // only HTTPS
@@ -590,8 +604,8 @@ class Functions
       ]
     );
 
-    die(json_encode(["link" => $link]));
-    //die(json_encode(["link" => REDIRECT_URI . "?code=test&state=" . $state]));
+    die(json_encode(["linq" => $link]));
+    //die(json_encode(["linq" => REDIRECT_URI . "?code=test&state=" . $state]));
   }
 
   public function contactPayloadBuilder(array $requestBody, string $userId)
@@ -669,7 +683,7 @@ class Functions
         'Error' => 'Unauthorized'
       ]));
     }
-    
+
     $jwtPayload = $this->jwtDecode($_COOKIE['refresh_token']);
 
     if (! $jwtPayload) {
@@ -684,9 +698,9 @@ class Functions
 
     $user = $jwtPayload['user_id'];
     $JWTSecretKey = $jwtPayload['secret_key'];
-    
+
     $deets = $this->loadToken($user);
-    
+
     //comparer keys
     if (! $deets || ($JWTSecretKey !== $deets["secret_key"])) {
       header("HTTP/1.1 401 Unauthorized");
@@ -694,7 +708,9 @@ class Functions
       http_response_code(401);
 
       die(json_encode([
-        'Error' => 'Unauthorized'
+        'Error' => 'Unauthorized',
+        'deets' => $deets,
+        'jwt' => $jwtPayload,
       ]));
     }
 
@@ -703,18 +719,36 @@ class Functions
     $payload['user_id'] = $deets['user_id'];
     $payload['tokens'] = $deets['tokens'] ?? 0;
     $payload['contacts_saved'] = $deets['contacts_saved'] ?? 0;
-    $payload['custom_message'] = $deets['custom_message'] ?? 'Add a custom message';
+    $payload['custom_message'] = $deets['custommessage'] ?? 'Add a custom message';
     $payload['prefix'] = $deets['prefix'] ?? "something before contacts's name";
     $payload['suffix'] = $deets['suffix'] ?? "something after contacts's name";
-    $payload['call_back'] = $deets['call_back'] ?? "Whatsapp link maybe or website";
+    $payload['call_back'] = $deets['callbackurl'] ?? "Whatsapp link maybe or website";
 
     die(json_encode($payload));
+  }
+
+  public function home($user): void
+  {
+
+    if (! $this->checkUser($user)) {
+
+      header("HTTP/1.1 404 url unreachable");
+
+      http_response_code(404);
+
+      die(json_encode(["status" => false, "user" => $user,]));
+    }
+
+    die(json_encode(["status" => true]));
   }
 
   public function logIn(string $token): string | null
   {
 
     $SECRETS = json_decode($this->decryptSecret(SECRETS), true);
+
+    $secretKey = bin2hex(random_bytes(16));
+
 
     $payload = [
       "client_id" => $SECRETS['client_id'],
@@ -731,12 +765,12 @@ class Functions
       $payload,
     );
 
-    if (isset($newToken['error'])) {
+    if (isset($newToken['error']) || ! $newToken['response']) {
 
-      die(json_encode(['Error' => $newToken['error']]));
+      die(json_encode(['Error' => $newToken['error'] ?? "Error requesting token."]));
     }
 
-    if (! $newToken['response']) die(json_encode(["Error" => "Error requesting token."]));
+    //if (! $newToken['response']) die(json_encode(["Error" => "Error requesting token."]));
 
     $tokenResponse = json_decode($newToken['response'], true);
 
@@ -752,8 +786,6 @@ class Functions
     if (! $payload) die(json_encode(["Error" => "Failed to extract email"]));
 
     $expiresAt = time() + $expiresIn;
-
-    $secretKey = bin2hex(random_bytes(16));
 
     // Save new token data
     $tokenData = [
@@ -772,7 +804,7 @@ class Functions
       $this->jwtEncode([
         'user_id' => $payload['user_id'],
         'secret_key' => $secretKey,
-        'expires_at' => time() + 604800, // 7 days
+        //'expires_at' => time() + 604800, // 7 days
       ]),
       [
         'expires' => time() + 604800, // 7 days
@@ -786,7 +818,10 @@ class Functions
 
     $this->saveToken($tokenData, $payload['user_id']); //We are going to not be doing this
 
-    header("location: https://localhost:5500/sandbox/dashboard.html");
+    header("location: https://localhost:5500/dashboard");
+
+    //die(json_encode(["tokenData" => $tokenData, "token" => $this->loadToken($payload['user_id'])]));
+    //die(json_encode(["tokenData" => $token, "token" => $this->loadToken($payload['user_id'])]));
     die(json_encode(True));
   }
 
@@ -796,24 +831,33 @@ class Functions
     if (! isset($_COOKIE['refresh_token']) || empty($_COOKIE['refresh_token']))
       die(json_encode(true));
 
-    setcookie(
+    /* setcookie(
       "refresh_token",
       '',
       [
-        'expires' => time() - (600), // 7 days
+        'expires' => time() - (600), // 10 Minutes
         'path' => '/',
         //'domain' => 'localhost', // optional, your domain
         'secure' => true, // only HTTPS
         'httponly' => true, // not accessible to JS
         'samesite' => 'none' // prevent CSRF
       ]
-    );
-
-    header("location: https://localhost:5600/logout");
+    ); */
   }
 
   public function main(string $contactPayload, string $user = "token"): void
   {
+
+    if (! $this->checkUser($user)) {
+
+      header("HTTP/1.1 404 url unreachable");
+
+      http_response_code(404);
+
+      die(json_encode([
+        'Error!' => 'EndPoint Not Found'
+      ]));
+    }
 
     // Load token
     $token = $this->loadToken($user);
@@ -821,11 +865,13 @@ class Functions
 
     if (!$token) {
 
-      header("HTTP/1.1 404 Token Not Found");
+      header("HTTP/1.1 404 url unreachable");
 
       http_response_code(404);
 
-      die(json_encode("Failed to load or refresh token."));
+      die(json_encode([
+        'Error!' => 'EndPoint Not Found'
+      ]));
     }
 
     $response = $this->sendCurlRequest(
@@ -854,25 +900,64 @@ class Functions
     $payload = [
       "Time" => time(),
       "Method" => $text,
-      "Response" => "Pong!"
+      "Response" => "Pong!",
+      "status" => False,
     ];
 
     if (! empty($_COOKIE['refresh_token'])) {
       $jwtPayload = $this->jwtDecode($_COOKIE['refresh_token']);
+      
+      if ($jwtPayload && ! empty($jwtPayload['user_id'])) {
+        $db = $this->loadToken($jwtPayload['user_id']);
+        //die(json_encode(["finger's crossed?" => $db]));
 
-      if ($jwtPayload) {
-        $payload['User'] = $jwtPayload['user_id'];
+        if (!empty($db) && ($jwtPayload['secret_key'] === $db['secret_key'])) {
+
+          $payload["status"] = True;
+        }
       }
     }
 
-    $this -> settings();
-    
-    die(json_encode(["Payload" => $payload]));
+    die(json_encode($payload));
   }
 
-  public function settings(): void
+  public function settings($payload = []): void
   {
-    //Code ...
-    die(json_encode('Here'));
+    //Verify user
+    try {
+      //code...
+      if (empty($_COOKIE['refresh_token']) || ! isset($_COOKIE['refresh_token'])) {
+        header("HTTP/1.1 401 Unauthorized");
+
+        http_response_code(401);
+
+        die(json_encode([
+          'Error' => 'Unauthorized'
+        ]));
+      }
+
+      $jwtPayload = $this->jwtDecode($_COOKIE['refresh_token']);
+
+      if (! $jwtPayload) {
+        header("HTTP/1.1 500 Internal error");
+
+        http_response_code(500);
+
+        die(json_encode([
+          'Error' => 'Server Issue'
+        ]));
+      }
+
+      $user = $jwtPayload['user_id'];
+
+      //die(json_encode($payload));
+
+      //save Token
+      $this->saveToken($payload, $user);
+      die(json_encode(['status' => 'ok']));
+    } catch (\Throwable $th) {
+      //throw $th;
+      die(json_encode(["status" => "error", 'Error' => $th->getMessage()]));
+    }
   }
 }
