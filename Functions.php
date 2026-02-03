@@ -738,7 +738,7 @@ class Functions
       die(json_encode(["status" => false, "user" => $user,]));
     }
 
-    die(json_encode(["status" => true]));
+    die(json_encode(["status" => true, "user" => $user]));
   }
 
   public function logIn(string $token): string | null

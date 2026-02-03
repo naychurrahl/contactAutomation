@@ -147,6 +147,7 @@ class Controller
 
           case 'POST':
             # code...
+
             $this->functions->contactPayloadBuilder($this->requestBody, strtolower($this->route));
             break;
 
