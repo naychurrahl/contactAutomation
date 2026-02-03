@@ -357,7 +357,7 @@ class Functions
 
   private function loadToken(string $user = "token"): array | null
   {
-    
+
     if ($userFilePath = $this->checkUser($user)) {
       $tokenData = json_decode(
         $this->decryptSecret(
@@ -366,14 +366,14 @@ class Functions
         ),
         true
       );
-      
+
       if (isset($tokenData['expires_at']) && $tokenData['expires_at'] > time()) {
         // Token has expired
         //die(json_encode($tokenData));
         //return $this->refreshToken($tokenData['refresh_token'], $user);
         $newTokenData = $this->refreshToken($tokenData['refresh_token'], $user);
 
-        if (! $newTokenData){
+        if (! $newTokenData) {
           die(json_encode(["I am the problem" => $tokenData]));
         }
 
@@ -381,7 +381,6 @@ class Functions
         $tokenData['user_id'] = $newTokenData['user_id'];
         $tokenData['user_email'] = $newTokenData['user_email'];
         $tokenData['expires_at'] = $newTokenData['expires_at'];
-
       }
 
       return $tokenData ?? null;
@@ -831,7 +830,7 @@ class Functions
     if (! isset($_COOKIE['refresh_token']) || empty($_COOKIE['refresh_token']))
       die(json_encode(true));
 
-    /* setcookie(
+    setcookie(
       "refresh_token",
       '',
       [
@@ -842,7 +841,9 @@ class Functions
         'httponly' => true, // not accessible to JS
         'samesite' => 'none' // prevent CSRF
       ]
-    ); */
+    );
+
+    die(json_encode(true));
   }
 
   public function main(string $contactPayload, string $user = "token"): void
@@ -906,7 +907,7 @@ class Functions
 
     if (! empty($_COOKIE['refresh_token'])) {
       $jwtPayload = $this->jwtDecode($_COOKIE['refresh_token']);
-      
+
       if ($jwtPayload && ! empty($jwtPayload['user_id'])) {
         $db = $this->loadToken($jwtPayload['user_id']);
         //die(json_encode(["finger's crossed?" => $db]));
